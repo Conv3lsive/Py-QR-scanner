@@ -4,6 +4,7 @@ from barcode_utils import find_barcodes, file_renamer
 from barcode_utils import split_by_student_folders
 from csv_utils import read_csv
 from file_utils import move_files, move_clear, move_unfound
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def setup_logging(level=logging.INFO):
@@ -15,7 +16,7 @@ def setup_logging(level=logging.INFO):
 def main():
     parser = argparse.ArgumentParser(description="Обработка изображений с баркодами.")
     parser.add_argument('--image-folder', required=False, help='Путь к папке с изображениями')
-    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3], required=True,
+    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4], required=True,
                         help='0 — переименование, 1 — перенос по CSV, 2 — архивировать, 3 — рассылка по email')
     parser.add_argument('--csv-path', help='Путь к CSV (для action=1)')
     parser.add_argument('--name-fields', nargs='*', help='Названия колонок ФИО через пробел (для action=1)')
@@ -39,9 +40,13 @@ def main():
             parser.error("Для action=0 и 1 требуется --image-folder")
         if not all([args.csv_path, args.name_fields, args.output_folder]):
             parser.error("Для action=1 нужны --csv-path, --name-fields и --output-folder")
+
         data = read_csv(args.csv_path, args.code_field, args.name_fields)
-        # move_clear(args.output_folder, args.image_folder, [p for v in barcodes.values() for p in v], args.move_mode)
-        # move_unfound(barcodes, data, args.output_folder, args.move_mode)
+
+        found_files = [p for v in barcodes.values() for p in v]
+        move_unfound(barcodes, data, args.output_folder, args.move_mode)
+        move_clear(args.output_folder, args.image_folder, found_files, args.move_mode)
+
         split_by_student_folders(barcodes, data, args.output_folder)
         logging.info("Готово! Все файлы обработаны.")
     elif args.action == 2:
@@ -60,12 +65,31 @@ def main():
         archives = zip_student_folders(args.output_folder)
         _, emails = read_csv_with_email(args.csv_path, args.code_field, args.name_fields)
 
-        for student, zip_path in archives.items():
-            recipient = emails.get(student)
+        def send_to_student(student, zip_path, recipient):
             if recipient:
-                send_email_smtp(recipient, "Ваша работа", "Пожалуйста, проверьте архив", zip_path)
+                try:
+                    send_email_smtp(recipient, "Ваша работа", "Пожалуйста, проверьте архив", zip_path)
+                    logging.info(f"Email отправлен: {student} -> {recipient}")
+                except Exception as e:
+                    logging.error(f"Ошибка при отправке письма для {student}: {e}")
             else:
                 logging.warning(f"Email не найден для {student}")
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [
+                executor.submit(send_to_student, student, zip_path, emails.get(student))
+                for student, zip_path in archives.items()
+            ]
+            for future in as_completed(futures):
+                future.result()
+    elif args.action == 4:
+        if not args.csv_path or not args.name_fields:
+            parser.error("Для action=4 нужны --csv-path и --name-fields")
+        from csv_utils import read_csv_with_email
+        from email_utils import validate_emails
+
+        _, emails = read_csv_with_email(args.csv_path, args.code_field, args.name_fields)
+        validate_emails(emails)
 
 if __name__ == '__main__':
     main()
