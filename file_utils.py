@@ -12,7 +12,7 @@ def move_files(data, output_folder, barcodes, move_mode='copy'):
         try:
             (shutil.move if move_mode == 'move' else shutil.copy)(src, dst)
         except Exception as e:
-            print(f"Ошибка при копировании {src} -> {dst}: {e}")
+             print(f"Ошибка при копировании {src} -> {dst}: {e}")
 
     tasks = []
 

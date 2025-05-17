@@ -3,9 +3,9 @@ from email.message import EmailMessage
 import os
 import logging
 from sendconfig import SMTP_EMAIL, SMTP_PASSWORD, SMTP_HOST, SMTP_PORT
-
-import re
-import socket
+#
+# import re
+# import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def send_email_smtp(recipient_email, subject, body, attachment_path):
@@ -29,7 +29,6 @@ def send_email_smtp(recipient_email, subject, body, attachment_path):
         logging.error(f"Ошибка отправки {recipient_email}: {e}")
 
 
-# --- Email validation utility ---
 def validate_emails(emails_dict):
     import re
     import smtplib
