@@ -1,5 +1,5 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from PIL import Image
 from pyzbar.pyzbar import decode
@@ -80,19 +80,28 @@ def decode_image_cv(path, image_folder):
         logger.error(f"Ошибка при обработке {path}: {e}")
         return []
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 def find_barcodes(image_folder):
     barcodes = {}
     image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith('.jpg')]
+
     with ThreadPoolExecutor() as executor:
-        results = executor.map(lambda path: decode_image_cv(path, image_folder), image_files)
-        for result_list in results:
-            for result in result_list:
-                # Проверяем, что каждый элемент result является кортежем (barcode_data, path)
-                if isinstance(result, tuple) and len(result) == 2:
-                    barcode_data, path = result
-                    barcodes.setdefault(barcode_data, []).append(path)
-                else:
-                    logger.warning(f"Неверный формат результата: {result}")
+        future_to_path = {executor.submit(decode_image_cv, path, image_folder): path for path in image_files}
+
+        for future in as_completed(future_to_path):
+            path = future_to_path[future]
+            try:
+                result_list = future.result()
+                for result in result_list:
+                    if isinstance(result, tuple) and len(result) == 2:
+                        barcode_data, img_path = result
+                        barcodes.setdefault(barcode_data, []).append(img_path)
+                    else:
+                        logger.warning(f"Неверный формат результата: {result}")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке {path}: {e}")
+
     return barcodes
 
 
@@ -114,17 +123,25 @@ def split_by_student_folders(barcodes, student_data, output_folder):
     os.makedirs(output_folder, exist_ok=True)
     unfound_folder = os.path.join(output_folder, 'unfound')
     os.makedirs(unfound_folder, exist_ok=True)
-    for student, codes in student_data.items():
-        student_folder = os.path.join(output_folder, student)
-        os.makedirs(student_folder, exist_ok=True)
-        for code_list in codes.values():
-            for code in code_list:
-                if code in barcodes:
-                    for src_path in barcodes[code]:
-                        try:
-                            filename = os.path.basename(src_path)
-                            dst_path = os.path.join(student_folder, filename)
-                            shutil.copy(src_path, dst_path)
-                            logger.info(f"Файл {filename} скопирован в {student_folder}")
-                        except Exception as e:
-                            logger.error(f"Ошибка копирования файла {src_path}: {e}")
+
+    def copy_to_student_folder(src_path, student_folder):
+        try:
+            filename = os.path.basename(src_path)
+            dst_path = os.path.join(student_folder, filename)
+            shutil.copy(src_path, dst_path)
+            logger.info(f"Файл {filename} скопирован в {student_folder}")
+        except Exception as e:
+            logger.error(f"Ошибка копирования файла {src_path}: {e}")
+
+    tasks = []
+    with ThreadPoolExecutor() as executor:
+        for student, codes in student_data.items():
+            student_folder = os.path.join(output_folder, student)
+            os.makedirs(student_folder, exist_ok=True)
+            for code_list in codes.values():
+                for code in code_list:
+                    if code in barcodes:
+                        for src_path in barcodes[code]:
+                            tasks.append(executor.submit(copy_to_student_folder, src_path, student_folder))
+        for task in tasks:
+            task.result()
