@@ -16,7 +16,7 @@ def setup_logging(level=logging.INFO):
 def main():
     parser = argparse.ArgumentParser(description="Обработка изображений с баркодами.")
     parser.add_argument('--image-folder', required=False, help='Путь к папке с изображениями')
-    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4], required=True,
+    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4, 5], required=True,
                         help='0 — переименование, 1 — перенос по CSV, 2 — архивировать, 3 — рассылка по email')
     parser.add_argument('--csv-path', help='Путь к CSV (для action=1)')
     parser.add_argument('--name-fields', nargs='*', help='Названия колонок ФИО через пробел (для action=1)')
@@ -90,6 +90,11 @@ def main():
 
         _, emails = read_csv_with_email(args.csv_path, args.code_field, args.name_fields)
         validate_emails(emails)
+    elif args.action == 5:
+        if not args.image_folder:
+            parser.error("Для action=5 требуется --image-folder")
+        from file_utils import check_pairing
+        check_pairing(args.image_folder)
 
 if __name__ == '__main__':
     main()
