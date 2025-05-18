@@ -5,6 +5,7 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 import cv2
 import shutil
+import numpy as np
 
 
 # Настройка логирования
@@ -19,52 +20,60 @@ def rotate_image(image, angle):
     return Image.fromarray(rotated_image)
 
 def find_best_rotation(image):
-    """Пробуем несколько углов для корректировки наклона изображения, если QR-код не найден с первого раза."""
-    best_image = image
-    best_data = None
-    max_barcodes = 0
+    try:
+        best_image = image
+        best_data = None
+        max_barcodes = 0
 
-    # Пробуем повороты на 90 градусов
-    for angle in [90, -90, 180]:
-        rotated_image = rotate_image(image, angle)
-        barcodes_data = decode(rotated_image)
+        for angle in [90, -90, 180]:
+            try:
+                rotated_image = rotate_image(image, angle)
+                barcodes_data = decode(rotated_image)
+                if len(barcodes_data) > max_barcodes:
+                    best_image = rotated_image
+                    best_data = barcodes_data
+                    max_barcodes = len(barcodes_data)
+            except Exception as e:
+                logger.warning(f"Ошибка поворота на {angle}°: {e}")
 
-        if len(barcodes_data) > max_barcodes:
-            best_image = rotated_image
-            best_data = barcodes_data
-            max_barcodes = len(barcodes_data)
+        for angle in range(-30, 31):
+            try:
+                rotated_image = rotate_image(image, angle)
+                barcodes_data = decode(rotated_image)
+                if len(barcodes_data) > max_barcodes:
+                    best_image = rotated_image
+                    best_data = barcodes_data
+                    max_barcodes = len(barcodes_data)
+            except Exception as e:
+                logger.warning(f"Ошибка поворота на {angle}°: {e}")
 
-    for angle in range(-30, 31):
-        rotated_image = rotate_image(image, angle)
-        barcodes_data = decode(rotated_image)
-
-        if len(barcodes_data) > max_barcodes:
-            best_image = rotated_image
-            best_data = barcodes_data
-            max_barcodes = len(barcodes_data)
-
-    return best_image, best_data
+        return best_image, best_data
+    except Exception as e:
+        logger.error(f"find_best_rotation: критическая ошибка: {e}")
+        return image, []
 
 def decode_image_cv(path, image_folder):
     try:
         logger.info(f"Обрабатывается файл: {path}")
-        image = Image.open(path)
+        with Image.open(path) as image:
+            # Пробуем сначала распознать QR-код без поворота
+            barcodes_data = decode(image)
 
-        # Пробуем сначала распознать QR-код без поворота
-        barcodes_data = decode(image)
+            if not barcodes_data:
+                logger.info(f"QR код не найден, пробуем поворот изображения: {path}")
+                best_image, barcodes_data = find_best_rotation(image)
+            else:
+                best_image = image
 
-        if not barcodes_data:
-            # Если QR-код не найден, пробуем поворот изображения на 90°
-            logger.info(f"QR код не найден, пробуем поворот изображения: {path}")
-            best_image, barcodes_data = find_best_rotation(image)
-
-        if len(barcodes_data) > 1:
-            double_qr_folder = os.path.join(image_folder, 'double_qr')
-            os.makedirs(double_qr_folder, exist_ok=True)
-            new_path = os.path.join(double_qr_folder, os.path.basename(path))
-            best_image.save(new_path)  # Сохраняем исправленное изображение
-            logger.info(f"Изображение с несколькими QR-кодами перемещено в {new_path}")
-            return []
+            # Удалим дублирующиеся данные, если они есть
+            unique_data = set()
+            for barcode in barcodes_data:
+                try:
+                    data = barcode.data.decode('utf-8').strip()
+                    if data not in unique_data:
+                        unique_data.add(data)
+                except Exception as e:
+                    logger.warning(f"Ошибка декодирования QR: {e}")
 
         if not barcodes_data:
             logger.info(f"QR код не найден в {path}")
