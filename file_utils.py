@@ -1,23 +1,22 @@
 import re
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 
 def get_all_files(folder):
     return {os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.jpg')}
 
 
-def move_files(data, output_folder, barcodes, move_mode='copy'):
     def move_one(src, dst):
         try:
             (shutil.move if move_mode == 'move' else shutil.copy)(src, dst)
         except Exception as e:
-             print(f"Ошибка при копировании {src} -> {dst}: {e}")
+            print(f"Ошибка при копировании {src} -> {dst}: {e}")
 
     tasks = []
 
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor() as executor:
         for student, codes in data.items():
             student_folder = os.path.join(output_folder, student)
             os.makedirs(student_folder, exist_ok=True)
@@ -74,6 +73,6 @@ def check_pairing(image_folder):
         if ('3' in suffixes) != ('4' in suffixes):
             print(f"Неполная пара 3-4 для: {base}")
 
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor() as executor:
         for base, suffixes in grouped.items():
             executor.submit(check_and_print, base, suffixes)
