@@ -1,4 +1,5 @@
-/sendconfig.py
+
 /.venv
 /__pycache__/
 /.idea
+/.DS_Store
