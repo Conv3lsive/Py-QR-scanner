@@ -3,7 +3,7 @@ from email.message import EmailMessage
 import os
 import logging
 from sendconfig import SMTP_EMAIL, SMTP_PASSWORD, SMTP_HOST, SMTP_PORT
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def send_email_smtp(recipient_email, subject, body, attachment_path):
     msg = EmailMessage()
@@ -26,7 +26,7 @@ def send_email_smtp(recipient_email, subject, body, attachment_path):
         logging.error(f"Ошибка отправки {recipient_email}: {e}")
 
 
-def validate_emails(emails_dict):
+def validate_emails(emails_dict, max_workers=6):
     import re
     import smtplib
     import socket
@@ -54,7 +54,7 @@ def validate_emails(emails_dict):
             logging.error(f"Ошибка проверки email {name}: {email} — {e}")
             invalid_emails.append((name, email))
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(validate, name, email) for name, email in emails_dict.items()]
         for future in as_completed(futures):
             future.result()

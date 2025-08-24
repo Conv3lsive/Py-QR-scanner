@@ -1,5 +1,5 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 from PIL import Image
 from pyzbar.pyzbar import decode
@@ -91,11 +91,11 @@ def decode_image_cv(path, image_folder):
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def find_barcodes(image_folder):
+def find_barcodes(image_folder, max_workers=6):
     barcodes = {}
     image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith('.jpg')]
 
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {executor.submit(decode_image_cv, path, image_folder): path for path in image_files}
 
         for future in as_completed(future_to_path):
@@ -128,7 +128,7 @@ def file_renamer(image_folder, barcode):
 
 
 # Функция распределения файлов по папкам студентов
-def split_by_student_folders(barcodes, student_data, output_folder):
+def split_by_student_folders(barcodes, student_data, output_folder, max_workers=6):
     os.makedirs(output_folder, exist_ok=True)
     unfound_folder = os.path.join(output_folder, 'unfound')
     os.makedirs(unfound_folder, exist_ok=True)
@@ -143,7 +143,7 @@ def split_by_student_folders(barcodes, student_data, output_folder):
             logger.error(f"Ошибка копирования файла {src_path}: {e}")
 
     tasks = []
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for student, codes in student_data.items():
             student_folder = os.path.join(output_folder, student)
             os.makedirs(student_folder, exist_ok=True)

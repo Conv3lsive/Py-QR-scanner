@@ -1,9 +1,9 @@
 import os
 import zipfile
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
-def zip_student_folders(output_folder):
+def zip_student_folders(output_folder, max_workers=6):
     def zip_one_student(student):
         student_path = os.path.join(output_folder, student)
         zip_path = os.path.join(output_folder, f"{student}.zip")
@@ -21,7 +21,7 @@ def zip_student_folders(output_folder):
             return student, None
 
     zipped_paths = {}
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(zip_one_student, student): student
             for student in os.listdir(output_folder)

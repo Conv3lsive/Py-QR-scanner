@@ -1,10 +1,10 @@
+
 import argparse
 import logging
-from barcode_utils import find_barcodes, file_renamer
-from barcode_utils import split_by_student_folders
+from barcode_utils import find_barcodes, file_renamer, split_by_student_folders
 from csv_utils import read_csv
 from file_utils import move_files, move_clear, move_unfound
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 def setup_logging(level=logging.INFO):
@@ -14,9 +14,10 @@ def setup_logging(level=logging.INFO):
     )
 
 def main():
+
     parser = argparse.ArgumentParser(description="Обработка изображений с баркодами.")
     parser.add_argument('--image-folder', required=False, help='Путь к папке с изображениями')
-    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4, 5], required=True,
+    parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4], required=True,
                         help='0 — переименование, 1 — перенос по CSV, 2 — архивировать, 3 — рассылка по email')
     parser.add_argument('--csv-path', help='Путь к CSV (для action=1)')
     parser.add_argument('--name-fields', nargs='*', help='Названия колонок ФИО через пробел (для action=1)')
@@ -24,12 +25,13 @@ def main():
     parser.add_argument('--output-folder', help='Папка для вывода (для action=1)')
     parser.add_argument('--move-mode', choices=['copy', 'move'], default='copy', help='copy или move (для action=1)')
     parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
+    parser.add_argument('--threads', type=int, default=6, help='Количество потоков/процессов для параллельной обработки (по умолчанию 6)')
     args = parser.parse_args()
 
     setup_logging(getattr(logging, args.log_level.upper(), logging.INFO))
 
     logging.info("Поиск баркодов...")
-    barcodes = find_barcodes(args.image_folder)
+    barcodes = find_barcodes(args.image_folder, max_workers=args.threads)
     if args.action == 0:
         if not args.image_folder:
             parser.error("Для action=0 и 1 требуется --image-folder")
@@ -40,14 +42,11 @@ def main():
             parser.error("Для action=0 и 1 требуется --image-folder")
         if not all([args.csv_path, args.name_fields, args.output_folder]):
             parser.error("Для action=1 нужны --csv-path, --name-fields и --output-folder")
-
         data = read_csv(args.csv_path, args.code_field, args.name_fields)
-
         found_files = [p for v in barcodes.values() for p in v]
         move_unfound(barcodes, data, args.output_folder, args.move_mode)
         move_clear(args.output_folder, args.image_folder, found_files, args.move_mode)
-
-        split_by_student_folders(barcodes, data, args.output_folder)
+        split_by_student_folders(barcodes, data, args.output_folder, max_workers=args.threads)
         logging.info("Готово! Все файлы обработаны.")
     elif args.action == 2:
         if not args.output_folder:
@@ -61,10 +60,8 @@ def main():
         from email_utils import send_email_smtp
         from zip_utils import zip_student_folders
         from csv_utils import read_csv_with_email
-
-        archives = zip_student_folders(args.output_folder)
+        archives = zip_student_folders(args.output_folder, max_workers=args.threads)
         _, emails = read_csv_with_email(args.csv_path, args.code_field, args.name_fields)
-
         def send_to_student(student, zip_path, recipient):
             if recipient:
                 try:
@@ -74,8 +71,7 @@ def main():
                     logging.error(f"Ошибка при отправке письма для {student}: {e}")
             else:
                 logging.warning(f"Email не найден для {student}")
-
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ProcessPoolExecutor(max_workers=args.threads) as executor:
             futures = [
                 executor.submit(send_to_student, student, zip_path, emails.get(student))
                 for student, zip_path in archives.items()
@@ -87,14 +83,5 @@ def main():
             parser.error("Для action=4 нужны --csv-path и --name-fields")
         from csv_utils import read_csv_with_email
         from email_utils import validate_emails
-
         _, emails = read_csv_with_email(args.csv_path, args.code_field, args.name_fields)
-        validate_emails(emails)
-    elif args.action == 5:
-        if not args.image_folder:
-            parser.error("Для action=5 требуется --image-folder")
-        from file_utils import check_pairing
-        check_pairing(args.image_folder)
-
-if __name__ == '__main__':
-    main()
+        validate_emails(emails, max_workers=args.threads)
