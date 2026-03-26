@@ -1,3 +1,7 @@
 Pillow
 pyzbar
 opencv-python
+PySide6
+watchdog
+pdf2image
+python-dotenv

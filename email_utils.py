@@ -2,8 +2,16 @@ import smtplib
 from email.message import EmailMessage
 import os
 import logging
-from sendconfig import SMTP_EMAIL, SMTP_PASSWORD, SMTP_HOST, SMTP_PORT
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from app_config import get_smtp_config
+
+
+SMTP_CFG = get_smtp_config()
+SMTP_EMAIL = SMTP_CFG['SMTP_EMAIL']
+SMTP_PASSWORD = SMTP_CFG['SMTP_PASSWORD']
+SMTP_HOST = SMTP_CFG['SMTP_HOST']
+SMTP_PORT = SMTP_CFG['SMTP_PORT']
 
 def send_email_smtp(recipient_email, subject, body, attachment_path):
     msg = EmailMessage()
@@ -37,26 +45,28 @@ def validate_emails(emails_dict, max_workers=6):
 
     def validate(name, email):
         if not email_regex.match(email):
-            logging.warning(f"Неверный формат email для {name}: {email}")
-            invalid_emails.append((name, email))
-            return
+            return name, email, False, 'Неверный формат'
         try:
             with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
                 smtp.login(SMTP_EMAIL, SMTP_PASSWORD)
                 code, message = smtp.noop()
                 if code == 250:
-                    logging.info(f"Email валиден: {name} — {email}")
-                    valid_emails[name] = email
+                    return name, email, True, 'OK'
                 else:
-                    logging.warning(f"SMTP NOOP не прошёл для {name}: {email} — {code} {message}")
-                    invalid_emails.append((name, email))
+                    return name, email, False, f'SMTP NOOP {code} {message}'
         except (smtplib.SMTPException, socket.timeout) as e:
-            logging.error(f"Ошибка проверки email {name}: {email} — {e}")
-            invalid_emails.append((name, email))
+            return name, email, False, str(e)
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(validate, name, email) for name, email in emails_dict.items()]
         for future in as_completed(futures):
-            future.result()
+            name, email, is_valid, reason = future.result()
+            if is_valid:
+                logging.info(f"Email валиден: {name} — {email}")
+                valid_emails[name] = email
+            else:
+                logging.warning(f"Email невалиден: {name} — {email}. Причина: {reason}")
+                invalid_emails.append((name, email))
 
     logging.info(f"Проверка завершена. Валидных email: {len(valid_emails)}, неверных: {len(invalid_emails)}")
+    return valid_emails, invalid_emails
