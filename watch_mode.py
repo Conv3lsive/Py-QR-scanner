@@ -42,12 +42,14 @@ class ScanEventHandler(FileSystemEventHandler):
 class FolderWatcherService:
     def __init__(self, input_folder, csv_path, name_fields, output_folder, code_field='код',
                  move_mode='copy', threads=4, state=None, debounce_sec=2.0,
+                 csv_delimiter='auto',
                  stable_checks=2, stable_interval=1.0, on_stats=None):
         self.input_folder = self._normalize_watch_path(input_folder)
         self.csv_path = csv_path
         self.name_fields = name_fields
         self.output_folder = output_folder
         self.code_field = code_field
+        self.csv_delimiter = csv_delimiter
         self.move_mode = move_mode
         self.threads = threads
         self.state = state
@@ -137,6 +139,7 @@ class FolderWatcherService:
                     name_fields=self.name_fields,
                     output_folder=self.output_folder,
                     code_field=self.code_field,
+                    csv_delimiter=self.csv_delimiter,
                     move_mode=self.move_mode,
                     threads=self.threads,
                     state=self.state,

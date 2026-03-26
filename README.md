@@ -35,7 +35,7 @@
 3. Пример запуска сортировки по CSV (action=1):
 
    ```bash
-   python main.py --action 1 --image-folder ./images --csv-path ./students.csv --name-fields Фамилия Имя --code-field код --output-folder ./output --move-mode copy --threads 6
+   python main.py --action 1 --image-folder ./images --csv-path ./students.csv --csv-delimiter auto --name-fields Фамилия Имя --code-field код --output-folder ./output --move-mode copy --threads 6
    ```
 
 4. GUI:
@@ -63,6 +63,7 @@
   - `5`: watch-режим (непрерывная сортировка)
 - `--image-folder` — входная папка со сканами
 - `--csv-path` — CSV с данными студентов
+- `--csv-delimiter` — разделитель CSV: `auto`, `;`, `,`, `\t` (по умолчанию `auto`)
 - `--name-fields` — список колонок, из которых собирается имя студента (например `Фамилия Имя`)
 - `--code-field` — шаблон имени колонки с кодами (по умолчанию `код`)
 - `--email-field` — имя (или часть имени) колонки с email (по умолчанию `email`)
@@ -87,6 +88,7 @@
 
 1. Сканируются файлы из `--image-folder`, извлекаются коды.
 2. Читается CSV:
+   - используется `--csv-delimiter` (или автоопределение при `auto`);
    - строится имя студента из колонок `--name-fields`;
    - находятся все колонки, содержащие `--code-field`.
 3. Формируется сопоставление «код → студент».
@@ -107,6 +109,7 @@
 
 1. Сначала создаются/обновляются архивы папок студентов (как в action 2).
 2. CSV читается повторно для получения email:
+   - используется `--csv-delimiter` (или автоопределение при `auto`);
    - имя студента собирается из `--name-fields`;
    - колонка email ищется по `--email-field` (сначала точное совпадение заголовка, затем частичное).
 3. Для каждого архива:
@@ -114,6 +117,7 @@
    - по этому ключу берётся email из CSV;
    - если email пустой/не найден — отправка для этого студента пропускается;
    - если email есть — отправляется письмо с zip-вложением.
+   - тема и текст письма берутся из `.env` (`EMAIL_SUBJECT`, `EMAIL_BODY`).
 4. В конце возвращается статистика `sent/failed`.
 
 #### Как именно программа сопоставляет «папку → ученик → email»
@@ -127,6 +131,7 @@
 ### Action 4 — Валидация email
 
 1. CSV читается аналогично action 3:
+   - используется `--csv-delimiter` (или автоопределение при `auto`);
    - имя студента по `--name-fields`;
    - email по `--email-field`.
 2. Для каждого email:
@@ -158,6 +163,8 @@ SMTP_EMAIL=your@email.com
 SMTP_PASSWORD=your_password
 SMTP_HOST=smtp.example.com
 SMTP_PORT=465
+EMAIL_SUBJECT=Ваша работа
+EMAIL_BODY=Пожалуйста, проверьте архив
 ```
 
 `sendconfig.py` остаётся fallback-вариантом для обратной совместимости.

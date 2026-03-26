@@ -21,7 +21,7 @@ SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
 def decode(image):
     if _decode is None:
-        raise RuntimeError('Не найдена библиотека zbar. Установите: brew install zbar')
+        raise RuntimeError('Не найдена библиотека zbar. Установите её с помощью "pip install zbar"')
     return _decode(image)
 
 def rotate_image(image, angle):

@@ -37,3 +37,14 @@ def get_smtp_config():
         'SMTP_HOST': smtp_host,
         'SMTP_PORT': smtp_port,
     }
+
+
+def get_email_config():
+    load_environment()
+    email_subject = os.getenv('EMAIL_SUBJECT') or _fallback_sendconfig('EMAIL_SUBJECT', 'Ваша работа')
+    email_body = os.getenv('EMAIL_BODY') or _fallback_sendconfig('EMAIL_BODY', 'Пожалуйста, проверьте архив')
+
+    return {
+        'EMAIL_SUBJECT': email_subject,
+        'EMAIL_BODY': email_body,
+    }
