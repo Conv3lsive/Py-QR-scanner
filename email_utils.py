@@ -54,7 +54,7 @@ def validate_emails(emails_dict, max_workers=6):
                     return name, email, True, 'OK'
                 else:
                     return name, email, False, f'SMTP NOOP {code} {message}'
-        except (smtplib.SMTPException, socket.timeout) as e:
+        except (smtplib.SMTPException, socket.timeout, OSError) as e:
             return name, email, False, str(e)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:

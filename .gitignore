@@ -1,6 +1,19 @@
 
-/.venv
-/__pycache__/
-/.idea
-/.DS_Store
-/.env
+# Python / environment
+.venv/
+__pycache__/
+.env
+
+# IDEs
+.idea/
+*.iml
+
+# macOS / OS junk
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+ehthumbs.db

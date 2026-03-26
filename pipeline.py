@@ -4,6 +4,7 @@ import os
 import shutil
 from typing import Dict, Iterable, List, Optional
 
+from app_config import get_email_config
 from csv_utils import read_csv, read_csv_with_email
 from email_utils import send_email_smtp, validate_emails
 from file_utils import move_clear, move_unfound
@@ -53,6 +54,7 @@ def _move_clear_for_batch(output_folder, considered_files, found_files, move_mod
 def run_action(action: int, image_folder: Optional[str] = None, csv_path: Optional[str] = None,
                name_fields: Optional[List[str]] = None, code_field: str = 'код',
                email_field: str = 'email',
+               csv_delimiter: str = 'auto',
                output_folder: Optional[str] = None, move_mode: str = 'copy',
                threads: int = 6, state=None):
     if action == 0:
@@ -70,7 +72,7 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         if not all([image_folder, csv_path, name_fields, output_folder]):
             raise ValueError('Для action=1 нужны --image-folder, --csv-path, --name-fields и --output-folder')
         barcodes = find_barcodes(image_folder, max_workers=threads)
-        data = read_csv(csv_path, code_field, name_fields)
+        data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)
         found_files = [p for v in barcodes.values() for p in v]
         move_unfound(barcodes, data, output_folder, move_mode)
         move_clear(output_folder, image_folder, found_files, move_mode)
@@ -92,8 +94,18 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         if not all([csv_path, output_folder, name_fields]):
             raise ValueError('Для action=3 нужны --csv-path, --output-folder и --name-fields')
 
+        email_cfg = get_email_config()
+        email_subject = email_cfg['EMAIL_SUBJECT']
+        email_body = email_cfg['EMAIL_BODY']
+
         archives = zip_student_folders(output_folder, max_workers=threads)
-        _, emails = read_csv_with_email(csv_path, code_field, name_fields, email_field=email_field)
+        _, emails = read_csv_with_email(
+            csv_path,
+            code_field,
+            name_fields,
+            email_field=email_field,
+            csv_delimiter=csv_delimiter,
+        )
 
         sent = 0
         failed = 0
@@ -103,7 +115,7 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
                 failed += 1
                 continue
             try:
-                send_email_smtp(recipient, 'Ваша работа', 'Пожалуйста, проверьте архив', zip_path)
+                send_email_smtp(recipient, email_subject, email_body, zip_path)
                 sent += 1
             except Exception:
                 failed += 1
@@ -113,7 +125,13 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
     if action == 4:
         if not all([csv_path, name_fields]):
             raise ValueError('Для action=4 нужны --csv-path и --name-fields')
-        _, emails = read_csv_with_email(csv_path, code_field, name_fields, email_field=email_field)
+        _, emails = read_csv_with_email(
+            csv_path,
+            code_field,
+            name_fields,
+            email_field=email_field,
+            csv_delimiter=csv_delimiter,
+        )
         validate_emails(emails, max_workers=threads)
         return {'status': 'ok', 'emails': len(emails)}
 
@@ -122,10 +140,10 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
 
 def process_watch_batch(file_paths: Iterable[str], csv_path: str, name_fields: List[str],
                         output_folder: str, code_field: str = 'код', move_mode: str = 'copy',
-                        threads: int = 4, state=None) -> Dict[str, int]:
+                        threads: int = 4, state=None, csv_delimiter: str = 'auto') -> Dict[str, int]:
     from barcode_utils import find_barcodes_in_files, split_by_student_folders
 
-    data = read_csv(csv_path, code_field, name_fields)
+    data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)
     incoming_files = [
         path for path in file_paths
         if os.path.isfile(path) and os.path.splitext(path)[1].lower() in WATCH_EXTENSIONS

@@ -67,23 +67,28 @@ class MainWindow(QMainWindow):
         self.name_fields_edit = QLineEdit('Фамилия Имя')
         self.code_field_edit = QLineEdit('код')
         self.email_field_edit = QLineEdit('email')
+        self.csv_delimiter_combo = QComboBox()
+        self.csv_delimiter_combo.addItems(['auto', ';', ',', '\\t'])
         self.threads_edit = QLineEdit('4')
 
         self._add_path_row(grid, 0, 'Input folder', self.input_edit, self.pick_folder)
         self._add_path_row(grid, 1, 'CSV file', self.csv_edit, self.pick_csv)
         self._add_path_row(grid, 2, 'Output folder', self.output_edit, self.pick_folder)
 
-        grid.addWidget(QLabel('Название столбцов Фамилия,Имя (через пробел)'), 3, 0)
-        grid.addWidget(self.name_fields_edit, 3, 1, 1, 2)
+        grid.addWidget(QLabel('CSV delimiter'), 3, 0)
+        grid.addWidget(self.csv_delimiter_combo, 3, 1, 1, 2)
 
-        grid.addWidget(QLabel('Название столбцов с кодом'), 4, 0)
-        grid.addWidget(self.code_field_edit, 4, 1, 1, 2)
+        grid.addWidget(QLabel('Название столбцов Фамилия,Имя (через пробел)'), 4, 0)
+        grid.addWidget(self.name_fields_edit, 4, 1, 1, 2)
 
-        grid.addWidget(QLabel('Название столбца с email'), 5, 0)
-        grid.addWidget(self.email_field_edit, 5, 1, 1, 2)
+        grid.addWidget(QLabel('Название столбцов с кодом'), 5, 0)
+        grid.addWidget(self.code_field_edit, 5, 1, 1, 2)
 
-        grid.addWidget(QLabel('Threads'), 6, 0)
-        grid.addWidget(self.threads_edit, 6, 1, 1, 2)
+        grid.addWidget(QLabel('Название столбца с email'), 6, 0)
+        grid.addWidget(self.email_field_edit, 6, 1, 1, 2)
+
+        grid.addWidget(QLabel('Threads'), 7, 0)
+        grid.addWidget(self.threads_edit, 7, 1, 1, 2)
 
         layout.addLayout(grid)
 
@@ -216,6 +221,7 @@ class MainWindow(QMainWindow):
             'name_fields': name_fields,
             'code_field': self.code_field_edit.text().strip() or 'код',
             'email_field': self.email_field_edit.text().strip() or 'email',
+            'csv_delimiter': self.csv_delimiter_combo.currentText(),
             'threads': threads,
         }
 
@@ -278,6 +284,7 @@ class MainWindow(QMainWindow):
                 name_fields=args['name_fields'],
                 output_folder=args['output_folder'],
                 code_field=args['code_field'],
+                csv_delimiter=args['csv_delimiter'],
                 move_mode=self.tab_watch_move_mode.currentText(),
                 threads=args['threads'],
                 state=state,

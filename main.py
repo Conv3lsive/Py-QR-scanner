@@ -30,6 +30,7 @@ def _run_watch_mode(args):
         name_fields=args.name_fields,
         output_folder=args.output_folder,
         code_field=args.code_field,
+        csv_delimiter=args.csv_delimiter,
         move_mode=args.move_mode,
         threads=args.threads,
         state=state,
@@ -54,6 +55,7 @@ def main():
     parser.add_argument('--name-fields', nargs='*', help='Названия колонок ФИО через пробел (для action=1)')
     parser.add_argument('--code-field', default='код', help="Название колонки с кодами (по умолчанию 'код')")
     parser.add_argument('--email-field', default='email', help="Название колонки с email (по умолчанию 'email')")
+    parser.add_argument('--csv-delimiter', default='auto', help="Разделитель CSV: auto, ';', ',', '\\t' (по умолчанию auto)")
     parser.add_argument('--output-folder', help='Папка для вывода (для action=1)')
     parser.add_argument('--move-mode', choices=['copy', 'move'], default='copy', help='copy или move (для action=1)')
     parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
@@ -85,6 +87,7 @@ def main():
                 name_fields=args.name_fields,
                 code_field=args.code_field,
                 email_field=args.email_field,
+                csv_delimiter=args.csv_delimiter,
                 output_folder=args.output_folder,
                 move_mode=args.move_mode,
                 threads=args.threads,
