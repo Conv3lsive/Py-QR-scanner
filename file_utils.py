@@ -4,30 +4,15 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 
 
+SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+
+
 def get_all_files(folder):
-    return {os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.jpg')}
-
-
-    def move_one(src, dst):
-        try:
-            (shutil.move if move_mode == 'move' else shutil.copy)(src, dst)
-        except Exception as e:
-            print(f"Ошибка при копировании {src} -> {dst}: {e}")
-
-    tasks = []
-
-    with ProcessPoolExecutor() as executor:
-        for student, codes in data.items():
-            student_folder = os.path.join(output_folder, student)
-            os.makedirs(student_folder, exist_ok=True)
-            for code_list in codes.values():
-                for code in code_list:
-                    for src in barcodes.get(code, []):
-                        dst = os.path.join(student_folder, os.path.basename(src))
-                        tasks.append(executor.submit(move_one, src, dst))
-
-        for task in tasks:
-            task.result()
+    return {
+        os.path.join(folder, f)
+        for f in os.listdir(folder)
+        if os.path.splitext(f)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
+    }
 
 
 def move_unfound(barcodes, data, output_folder, move_mode='copy'):
@@ -57,7 +42,10 @@ def move_clear(output_folder, image_folder, found_files, move_mode='copy'):
 
 def check_pairing(image_folder):
     from collections import defaultdict
-    files = [f for f in os.listdir(image_folder) if f.endswith('.jpg')]
+    files = [
+        f for f in os.listdir(image_folder)
+        if os.path.splitext(f)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
+    ]
     pattern = re.compile(r"(\d+)-([1-4])(?:\(\d+\))?\.jpg")
 
     grouped = defaultdict(set)

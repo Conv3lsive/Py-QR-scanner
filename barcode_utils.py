@@ -1,16 +1,28 @@
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import os
 from PIL import Image
-from pyzbar.pyzbar import decode
+try:
+    from pyzbar.pyzbar import decode as _decode
+except Exception:
+    _decode = None
 import cv2
 import shutil
 import numpy as np
+from typing import Iterable
 
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+
+
+def decode(image):
+    if _decode is None:
+        raise RuntimeError('Не найдена библиотека zbar. Установите: brew install zbar')
+    return _decode(image)
 
 def rotate_image(image, angle):
     """Поворот изображения на заданный угол."""
@@ -77,7 +89,7 @@ def decode_image_cv(path, image_folder):
 
         if not barcodes_data:
             logger.info(f"QR код не найден в {path}")
-            return path, None
+            return []
 
         results = []
         for barcode in barcodes_data:
@@ -89,14 +101,18 @@ def decode_image_cv(path, image_folder):
         logger.error(f"Ошибка при обработке {path}: {e}")
         return []
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-def find_barcodes(image_folder, max_workers=6):
+def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6):
     barcodes = {}
-    image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith('.jpg')]
+    image_files = [
+        path for path in file_paths
+        if os.path.isfile(path) and os.path.splitext(path)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
+    ]
+
+    if not image_files:
+        return barcodes
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path = {executor.submit(decode_image_cv, path, image_folder): path for path in image_files}
+        future_to_path = {executor.submit(decode_image_cv, path, None): path for path in image_files}
 
         for future in as_completed(future_to_path):
             path = future_to_path[future]
@@ -112,6 +128,10 @@ def find_barcodes(image_folder, max_workers=6):
                 logger.error(f"Ошибка при обработке {path}: {e}")
 
     return barcodes
+
+def find_barcodes(image_folder, max_workers=6):
+    image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder)]
+    return find_barcodes_in_files(image_files, max_workers=max_workers)
 
 
 def file_renamer(image_folder, barcode):
@@ -143,7 +163,7 @@ def split_by_student_folders(barcodes, student_data, output_folder, max_workers=
             logger.error(f"Ошибка копирования файла {src_path}: {e}")
 
     tasks = []
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for student, codes in student_data.items():
             student_folder = os.path.join(output_folder, student)
             os.makedirs(student_folder, exist_ok=True)
