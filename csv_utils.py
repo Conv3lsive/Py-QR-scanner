@@ -93,9 +93,18 @@ def read_csv_with_email(csv_path, code_name, student_fields, email_field='email'
         resolved_email_field = _resolve_column_name(headers, email_field)
 
         for row in reader:
+            student_name = ' '.join([row.get(f, '').strip() for f in student_fields]).strip()
+            if not student_name:
+                continue
+
+            if resolved_email_field:
+                email_value = row.get(resolved_email_field, '').strip()
+                if student_name not in emails or email_value:
+                    emails[student_name] = email_value
+            else:
+                emails.setdefault(student_name, '')
+
             codes = [col for col in row if col and code_name in col.lower()]
             if codes:
-                student_name = ' '.join([row.get(f, '').strip() for f in student_fields])
                 data[student_name] = {code: [row[code]] for code in codes if row[code]}
-                emails[student_name] = row.get(resolved_email_field, '').strip() if resolved_email_field else ''
     return data, emails
