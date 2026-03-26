@@ -2,7 +2,7 @@ import hashlib
 import logging
 import os
 import shutil
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 from app_config import get_email_config
 from csv_utils import read_csv, read_csv_with_email
@@ -15,6 +15,19 @@ from zip_utils import zip_student_folders
 logger = logging.getLogger(__name__)
 
 WATCH_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.pdf'}
+
+
+def _emit_progress(progress_callback, action, done, total=None, unit='ед.', message=''):
+    if not progress_callback:
+        return
+    payload = {
+        'action': action,
+        'done': int(done),
+        'total': int(total) if total is not None else None,
+        'unit': unit,
+        'message': message,
+    }
+    progress_callback(payload)
 
 
 def _hash_file(path: str, chunk_size: int = 1024 * 1024) -> str:
@@ -56,14 +69,29 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
                email_field: str = 'email',
                csv_delimiter: str = 'auto',
                output_folder: Optional[str] = None, move_mode: str = 'copy',
-               threads: int = 6, state=None):
+               threads: int = 6, state=None, progress_callback: Optional[Callable] = None):
     if action == 0:
         from barcode_utils import find_barcodes, file_renamer
 
         if not image_folder:
             raise ValueError('Для action=0 требуется --image-folder')
-        barcodes = find_barcodes(image_folder, max_workers=threads)
-        file_renamer(image_folder, barcodes)
+
+        barcodes = find_barcodes(
+            image_folder,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
+        file_renamer(
+            image_folder,
+            barcodes,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
+
+        _emit_progress(progress_callback, action, 1, 1, 'этап', 'Переименование завершено')
         return {'status': 'ok', 'message': 'Файлы переименованы'}
 
     if action == 1:
@@ -71,12 +99,31 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
 
         if not all([image_folder, csv_path, name_fields, output_folder]):
             raise ValueError('Для action=1 нужны --image-folder, --csv-path, --name-fields и --output-folder')
-        barcodes = find_barcodes(image_folder, max_workers=threads)
+
+        barcodes = find_barcodes(
+            image_folder,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
         data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)
         found_files = [p for v in barcodes.values() for p in v]
+
+        _emit_progress(progress_callback, action, 1, 3, 'этап', 'Перемещение notfound/noqrcode')
         move_unfound(barcodes, data, output_folder, move_mode)
         move_clear(output_folder, image_folder, found_files, move_mode)
-        split_by_student_folders(barcodes, data, output_folder, max_workers=threads)
+
+        split_by_student_folders(
+            barcodes,
+            data,
+            output_folder,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
+        _emit_progress(progress_callback, action, 3, 3, 'этап', 'Распределение завершено')
         return {
             'status': 'ok',
             'message': 'Файлы распределены',
@@ -87,7 +134,14 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
     if action == 2:
         if not output_folder:
             raise ValueError('Для action=2 требуется --output-folder')
-        archives = zip_student_folders(output_folder, max_workers=threads)
+        archives = zip_student_folders(
+            output_folder,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
+        _emit_progress(progress_callback, action, 1, 1, 'этап', 'Архивация завершена')
         return {'status': 'ok', 'archives': len(archives)}
 
     if action == 3:
@@ -98,7 +152,13 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         email_subject = email_cfg['EMAIL_SUBJECT']
         email_body = email_cfg['EMAIL_BODY']
 
-        archives = zip_student_folders(output_folder, max_workers=threads)
+        archives = zip_student_folders(
+            output_folder,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
         _, emails = read_csv_with_email(
             csv_path,
             code_field,
@@ -109,16 +169,25 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
 
         sent = 0
         failed = 0
+        total_archives = len(archives)
+        done_archives = 0
         for student, zip_path in archives.items():
             recipient = emails.get(student)
             if not recipient:
                 failed += 1
+                done_archives += 1
+                _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
                 continue
             try:
                 send_email_smtp(recipient, email_subject, email_body, zip_path)
                 sent += 1
             except Exception:
                 failed += 1
+            finally:
+                done_archives += 1
+                _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
+
+        _emit_progress(progress_callback, action, 1, 1, 'этап', 'Рассылка завершена')
 
         return {'status': 'ok', 'sent': sent, 'failed': failed}
 
@@ -132,7 +201,14 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             email_field=email_field,
             csv_delimiter=csv_delimiter,
         )
-        validate_emails(emails, max_workers=threads)
+        validate_emails(
+            emails,
+            max_workers=threads,
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
+        _emit_progress(progress_callback, action, 1, 1, 'этап', 'Валидация завершена')
         return {'status': 'ok', 'emails': len(emails)}
 
     raise ValueError(f'Неизвестный action: {action}')

@@ -9,7 +9,7 @@ except Exception:
 import cv2
 import shutil
 import numpy as np
-from typing import Iterable
+from typing import Iterable, Optional, Callable
 
 
 # Настройка логирования
@@ -17,6 +17,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+
+
+def _emit_progress(progress_callback: Optional[Callable], done: int, total: int, unit: str, message: str):
+    if progress_callback:
+        progress_callback(done, total, unit, message)
 
 
 def decode(image):
@@ -101,7 +106,7 @@ def decode_image_cv(path, image_folder):
         logger.error(f"Ошибка при обработке {path}: {e}")
         return []
 
-def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6):
+def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_callback=None):
     barcodes = {}
     image_files = [
         path for path in file_paths
@@ -109,7 +114,11 @@ def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6):
     ]
 
     if not image_files:
+        _emit_progress(progress_callback, 0, 0, 'файлов', 'Нет изображений для распознавания')
         return barcodes
+
+    total = len(image_files)
+    completed = 0
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {executor.submit(decode_image_cv, path, None): path for path in image_files}
@@ -127,15 +136,23 @@ def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6):
             except Exception as e:
                 logger.error(f"Ошибка при обработке {path}: {e}")
 
+            completed += 1
+            _emit_progress(progress_callback, completed, total, 'файлов', 'Распознавание QR/штрихкодов')
+
     return barcodes
 
-def find_barcodes(image_folder, max_workers=6):
+def find_barcodes(image_folder, max_workers=6, progress_callback=None):
     image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder)]
-    return find_barcodes_in_files(image_files, max_workers=max_workers)
+    return find_barcodes_in_files(image_files, max_workers=max_workers, progress_callback=progress_callback)
 
 
-def file_renamer(image_folder, barcode):
-    reversed_bc = {path: code for code, paths in barcode.items() for path in paths}
+def file_renamer(image_folder, barcode, progress_callback=None):
+    total = sum(len(paths) for paths in barcode.values())
+    processed = 0
+
+    if total == 0:
+        _emit_progress(progress_callback, 0, 0, 'файлов', 'Нет файлов для переименования')
+
     for code, paths in barcode.items():
         for idx, path in enumerate(paths, start=1):
             try:
@@ -145,10 +162,13 @@ def file_renamer(image_folder, barcode):
                 logger.info(f"Файл {path} переименован в {new_name}")
             except Exception as e:
                 logger.error(f"Ошибка переименования {path}: {e}")
+            finally:
+                processed += 1
+                _emit_progress(progress_callback, processed, total, 'файлов', 'Переименование файлов')
 
 
 # Функция распределения файлов по папкам студентов
-def split_by_student_folders(barcodes, student_data, output_folder, max_workers=6):
+def split_by_student_folders(barcodes, student_data, output_folder, max_workers=6, progress_callback=None):
     os.makedirs(output_folder, exist_ok=True)
     unfound_folder = os.path.join(output_folder, 'unfound')
     os.makedirs(unfound_folder, exist_ok=True)
@@ -172,5 +192,13 @@ def split_by_student_folders(barcodes, student_data, output_folder, max_workers=
                     if code in barcodes:
                         for src_path in barcodes[code]:
                             tasks.append(executor.submit(copy_to_student_folder, src_path, student_folder))
-        for task in tasks:
+
+        total = len(tasks)
+        if total == 0:
+            _emit_progress(progress_callback, 0, 0, 'файлов', 'Нет файлов для распределения')
+
+        completed = 0
+        for task in as_completed(tasks):
             task.result()
+            completed += 1
+            _emit_progress(progress_callback, completed, total, 'файлов', 'Распределение файлов по папкам')
