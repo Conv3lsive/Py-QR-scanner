@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^/Users/conv3/Py-QR-scanner/\\.venv/bin/python - <<'PY'\nimport sys\nfrom PySide6\\.QtCore import QTimer\nfrom PySide6\\.QtWidgets import QApplication\nfrom gui_app import MainWindow\n\napp = QApplication\\(sys\\.argv\\)\nw = MainWindow\\(\\)\n\nw\\.input_edit\\.setText\\('/Users/conv3/test_pyqr/сканы'\\)\nw\\.csv_edit\\.setText\\('/Users/conv3/test_pyqr/spisok\\.csv'\\)\nw\\.output_edit\\.setText\\('/Users/conv3/test_pyqr/out'\\)\nw\\.name_fields_edit\\.setText\\('Фамилия Имя'\\)\nw\\.code_field_edit\\.setText\\('код'\\)\nw\\.csv_delimiter_combo\\.setCurrentText\\('auto'\\)\n\nw\\.show\\(\\)\nw\\.run_action1\\(\\)\n\ndef done_check\\(\\):\n    if w\\.worker_thread is None or not w\\.worker_thread\\.isRunning\\(\\):\n        print\\('gui_action1_done'\\)\n        app\\.quit\\(\\)\n    else:\n        QTimer\\.singleShot\\(500, done_check\\)\n\nQTimer\\.singleShot\\(500, done_check\\)\nQTimer\\.singleShot\\(30000, app\\.quit\\)\napp\\.exec\\(\\)\nprint\\('gui_action1_exit'\\)\nPY$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

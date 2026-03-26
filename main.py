@@ -34,6 +34,14 @@ def _run_watch_mode(args):
         move_mode=args.move_mode,
         threads=args.threads,
         state=state,
+        debounce_sec=args.watch_debounce_sec,
+        stable_checks=args.watch_stable_checks,
+        stable_interval=args.watch_stable_interval,
+        poll_interval=args.watch_poll_interval,
+        process_existing_on_start=args.watch_process_existing,
+        requeue_unstable=not args.watch_no_requeue_unstable,
+        detailed_stats=args.watch_detailed_stats,
+        sample_limit=args.watch_sample_limit,
         on_stats=lambda stats: logging.info('Watcher stats: %s', stats),
     )
     service.start()
@@ -61,6 +69,14 @@ def main():
     parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
     parser.add_argument('--threads', type=int, default=6, help='Количество потоков/процессов для параллельной обработки (по умолчанию 6)')
     parser.add_argument('--gui', action='store_true', help='Запустить графический интерфейс')
+    parser.add_argument('--watch-debounce-sec', type=float, default=2.0, help='Watcher: задержка перед обработкой нового файла (сек)')
+    parser.add_argument('--watch-stable-checks', type=int, default=2, help='Watcher: число проверок стабильности файла')
+    parser.add_argument('--watch-stable-interval', type=float, default=1.0, help='Watcher: интервал между проверками стабильности (сек)')
+    parser.add_argument('--watch-poll-interval', type=float, default=0.5, help='Watcher: период опроса очереди (сек)')
+    parser.add_argument('--watch-process-existing', action='store_true', help='Watcher: обработать уже существующие файлы при запуске')
+    parser.add_argument('--watch-no-requeue-unstable', action='store_true', help='Watcher: не возвращать нестабильные файлы обратно в очередь')
+    parser.add_argument('--watch-detailed-stats', action='store_true', help='Watcher: подробная статистика batch в логах')
+    parser.add_argument('--watch-sample-limit', type=int, default=5, help='Watcher: сколько имён файлов показывать в sample-логах')
     args = parser.parse_args()
 
     setup_logging(getattr(logging, args.log_level.upper(), logging.INFO))

@@ -43,7 +43,9 @@ class FolderWatcherService:
     def __init__(self, input_folder, csv_path, name_fields, output_folder, code_field='код',
                  move_mode='copy', threads=4, state=None, debounce_sec=2.0,
                  csv_delimiter='auto',
-                 stable_checks=2, stable_interval=1.0, on_stats=None):
+                 stable_checks=2, stable_interval=1.0, poll_interval=0.5,
+                 process_existing_on_start=False, requeue_unstable=True,
+                 detailed_stats=False, sample_limit=5, on_stats=None):
         self.input_folder = self._normalize_watch_path(input_folder)
         self.csv_path = csv_path
         self.name_fields = name_fields
@@ -56,6 +58,11 @@ class FolderWatcherService:
         self.debounce_sec = debounce_sec
         self.stable_checks = stable_checks
         self.stable_interval = stable_interval
+        self.poll_interval = poll_interval
+        self.process_existing_on_start = process_existing_on_start
+        self.requeue_unstable = requeue_unstable
+        self.detailed_stats = detailed_stats
+        self.sample_limit = sample_limit
         self.on_stats = on_stats
 
         self.queue_dict = defaultdict(float)
@@ -63,6 +70,38 @@ class FolderWatcherService:
         self.stop_event = threading.Event()
         self.worker_thread = None
         self.observer = None
+
+    def _queue_size(self):
+        with self.queue_lock:
+            return len(self.queue_dict)
+
+    def _requeue_files(self, file_paths):
+        now = time.time()
+        with self.queue_lock:
+            for path in file_paths:
+                self.queue_dict[path] = now
+
+    def _prime_existing_files(self):
+        seeded = 0
+        now = time.time() - self.debounce_sec
+        with self.queue_lock:
+            for name in os.listdir(self.input_folder):
+                path = os.path.join(self.input_folder, name)
+                if not os.path.isfile(path):
+                    continue
+                ext = os.path.splitext(path)[1].lower()
+                if ext not in WATCH_EXTENSIONS:
+                    continue
+                self.queue_dict[path] = now
+                seeded += 1
+        return seeded
+
+    def _sample_paths(self, file_paths):
+        if not file_paths:
+            return []
+        if self.sample_limit <= 0:
+            return []
+        return [os.path.basename(path) for path in file_paths[:self.sample_limit]]
 
     @staticmethod
     def _normalize_watch_path(input_path):
@@ -125,15 +164,60 @@ class FolderWatcherService:
         while not self.stop_event.is_set():
             ready_files = self._drain_ready_files()
             if not ready_files:
-                time.sleep(0.5)
+                time.sleep(self.poll_interval)
                 continue
 
-            stable_files = [path for path in ready_files if self._is_stable(path)]
+            stable_files = []
+            unstable_files = []
+            missing_files = []
+
+            for path in ready_files:
+                if not os.path.exists(path):
+                    missing_files.append(path)
+                    continue
+                if self._is_stable(path):
+                    stable_files.append(path)
+                else:
+                    unstable_files.append(path)
+
+            requeued = 0
+            if unstable_files and self.requeue_unstable:
+                self._requeue_files(unstable_files)
+                requeued = len(unstable_files)
+
             if not stable_files:
+                if self.detailed_stats:
+                    logger.info(
+                        'Watcher batch skipped: ready=%d stable=0 unstable=%d requeued=%d missing=%d queue=%d sample_ready=%s',
+                        len(ready_files),
+                        len(unstable_files),
+                        requeued,
+                        len(missing_files),
+                        self._queue_size(),
+                        self._sample_paths(ready_files),
+                    )
+
+                if self.on_stats:
+                    self.on_stats({
+                        'incoming': 0,
+                        'processed': 0,
+                        'duplicates': 0,
+                        'unrecognized': 0,
+                        'ready': len(ready_files),
+                        'stable': 0,
+                        'unstable': len(unstable_files),
+                        'requeued': requeued,
+                        'missing': len(missing_files),
+                        'queue_size': self._queue_size(),
+                        'sample_ready': self._sample_paths(ready_files),
+                        'sample_stable': [],
+                        'sample_unstable': self._sample_paths(unstable_files),
+                        'batch_skipped': True,
+                    })
                 continue
 
             try:
-                stats = process_watch_batch(
+                processing_stats = process_watch_batch(
                     stable_files,
                     csv_path=self.csv_path,
                     name_fields=self.name_fields,
@@ -144,7 +228,39 @@ class FolderWatcherService:
                     threads=self.threads,
                     state=self.state,
                 )
-                logger.info('Batch processed: %s', stats)
+
+                stats = {
+                    **processing_stats,
+                    'ready': len(ready_files),
+                    'stable': len(stable_files),
+                    'unstable': len(unstable_files),
+                    'requeued': requeued,
+                    'missing': len(missing_files),
+                    'queue_size': self._queue_size(),
+                    'sample_ready': self._sample_paths(ready_files),
+                    'sample_stable': self._sample_paths(stable_files),
+                    'sample_unstable': self._sample_paths(unstable_files),
+                    'batch_skipped': False,
+                }
+
+                if self.detailed_stats:
+                    logger.info(
+                        'Watcher batch: ready=%d stable=%d unstable=%d requeued=%d missing=%d | incoming=%d processed=%d duplicates=%d unrecognized=%d queue=%d sample_stable=%s',
+                        stats['ready'],
+                        stats['stable'],
+                        stats['unstable'],
+                        stats['requeued'],
+                        stats['missing'],
+                        stats['incoming'],
+                        stats['processed'],
+                        stats['duplicates'],
+                        stats['unrecognized'],
+                        stats['queue_size'],
+                        stats['sample_stable'],
+                    )
+                else:
+                    logger.info('Batch processed: %s', processing_stats)
+
                 if self.on_stats:
                     self.on_stats(stats)
             except Exception as exc:
@@ -155,14 +271,28 @@ class FolderWatcherService:
             return
 
         os.makedirs(self.input_folder, exist_ok=True)
+        self.stop_event.clear()
         self.observer = Observer()
         handler = ScanEventHandler(self.queue_dict, self.queue_lock)
         self.observer.schedule(handler, self.input_folder, recursive=False)
         self.observer.start()
 
+        if self.process_existing_on_start:
+            seeded = self._prime_existing_files()
+            logger.info('Watcher initial scan queued %d existing files', seeded)
+
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker_thread.start()
-        logger.info('Watcher started for %s', self.input_folder)
+        logger.info(
+            'Watcher started for %s (debounce=%ss stable_checks=%s stable_interval=%ss poll=%ss requeue_unstable=%s detailed_stats=%s)',
+            self.input_folder,
+            self.debounce_sec,
+            self.stable_checks,
+            self.stable_interval,
+            self.poll_interval,
+            self.requeue_unstable,
+            self.detailed_stats,
+        )
 
     def stop(self):
         self.stop_event.set()

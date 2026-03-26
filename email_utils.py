@@ -34,7 +34,7 @@ def send_email_smtp(recipient_email, subject, body, attachment_path):
         logging.error(f"Ошибка отправки {recipient_email}: {e}")
 
 
-def validate_emails(emails_dict, max_workers=6):
+def validate_emails(emails_dict, max_workers=6, progress_callback=None):
     import re
     import smtplib
     import socket
@@ -57,6 +57,11 @@ def validate_emails(emails_dict, max_workers=6):
         except (smtplib.SMTPException, socket.timeout, OSError) as e:
             return name, email, False, str(e)
 
+    total = len(emails_dict)
+    if total == 0 and progress_callback:
+        progress_callback(0, 0, 'email', 'Нет email для проверки')
+
+    completed = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(validate, name, email) for name, email in emails_dict.items()]
         for future in as_completed(futures):
@@ -67,6 +72,10 @@ def validate_emails(emails_dict, max_workers=6):
             else:
                 logging.warning(f"Email невалиден: {name} — {email}. Причина: {reason}")
                 invalid_emails.append((name, email))
+
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, total, 'email', 'Проверка email')
 
     logging.info(f"Проверка завершена. Валидных email: {len(valid_emails)}, неверных: {len(invalid_emails)}")
     return valid_emails, invalid_emails
