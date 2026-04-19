@@ -1,8 +1,8 @@
+import logging
+import os
+import re
 import smtplib
 from email.message import EmailMessage
-import os
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app_config import get_smtp_config
 
@@ -12,6 +12,16 @@ SMTP_EMAIL = SMTP_CFG['SMTP_EMAIL']
 SMTP_PASSWORD = SMTP_CFG['SMTP_PASSWORD']
 SMTP_HOST = SMTP_CFG['SMTP_HOST']
 SMTP_PORT = SMTP_CFG['SMTP_PORT']
+EMAIL_REGEX = re.compile(
+    r"(?i)^(?=.{1,254}$)(?=.{1,64}@)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+)
+
+
+def is_valid_email(email):
+    normalized = (email or '').strip()
+    if not normalized or '..' in normalized:
+        return False
+    return EMAIL_REGEX.fullmatch(normalized) is not None
 
 def send_email_smtp(recipient_email, subject, body, attachment_path):
     msg = EmailMessage()
@@ -30,52 +40,35 @@ def send_email_smtp(recipient_email, subject, body, attachment_path):
             smtp.login(SMTP_EMAIL, SMTP_PASSWORD)
             smtp.send_message(msg)
             logging.info(f"Отправлено {recipient_email} — {file_name}")
+            return True
     except Exception as e:
         logging.error(f"Ошибка отправки {recipient_email}: {e}")
+        return False
 
 
 def validate_emails(emails_dict, max_workers=6, progress_callback=None):
-    import re
-    import smtplib
-    import socket
-    email_regex = re.compile(r"[^@]+@[^@]+\.[^@]+")
+    _ = max_workers
 
     valid_emails = {}
     invalid_emails = []
-
-    def validate(name, email):
-        if not email_regex.match(email):
-            return name, email, False, 'Неверный формат'
-        try:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
-                smtp.login(SMTP_EMAIL, SMTP_PASSWORD)
-                code, message = smtp.noop()
-                if code == 250:
-                    return name, email, True, 'OK'
-                else:
-                    return name, email, False, f'SMTP NOOP {code} {message}'
-        except (smtplib.SMTPException, socket.timeout, OSError) as e:
-            return name, email, False, str(e)
 
     total = len(emails_dict)
     if total == 0 and progress_callback:
         progress_callback(0, 0, 'email', 'Нет email для проверки')
 
     completed = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(validate, name, email) for name, email in emails_dict.items()]
-        for future in as_completed(futures):
-            name, email, is_valid, reason = future.result()
-            if is_valid:
-                logging.info(f"Email валиден: {name} — {email}")
-                valid_emails[name] = email
-            else:
-                logging.warning(f"Email невалиден: {name} — {email}. Причина: {reason}")
-                invalid_emails.append((name, email))
+    for name, email in emails_dict.items():
+        normalized_email = (email or '').strip()
+        if is_valid_email(normalized_email):
+            logging.info(f"Email валиден: {name} — {normalized_email}")
+            valid_emails[name] = normalized_email
+        else:
+            logging.warning(f"Email невалиден: {name} — {normalized_email}. Причина: Неверный формат")
+            invalid_emails.append((name, normalized_email))
 
-            completed += 1
-            if progress_callback:
-                progress_callback(completed, total, 'email', 'Проверка email')
+        completed += 1
+        if progress_callback:
+            progress_callback(completed, total, 'email', 'Проверка email')
 
     logging.info(f"Проверка завершена. Валидных email: {len(valid_emails)}, неверных: {len(invalid_emails)}")
     return valid_emails, invalid_emails

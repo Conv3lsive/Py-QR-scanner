@@ -11,7 +11,6 @@ def setup_logging(level=logging.INFO):
         level=level
     )
 
-
 def _run_watch_mode(args):
     from pipeline import WATCH_EXTENSIONS
     from processing_state import ProcessingState
