@@ -2,19 +2,22 @@ import hashlib
 import logging
 import os
 import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, Iterable, List, Optional
 
 from app_config import get_email_config
 from csv_utils import read_csv, read_csv_with_email
-from email_utils import send_email_smtp, validate_emails
+from email_utils import is_valid_email, send_email_smtp, validate_emails
 from file_utils import move_clear, move_unfound
-from pdf_utils import pdf_to_images
 from zip_utils import zip_student_folders
 
 
 logger = logging.getLogger(__name__)
 
-WATCH_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.pdf'}
+WATCH_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+_FILE_HASH_CACHE = {}
+_FILE_HASH_CACHE_LOCK = threading.Lock()
 
 
 def _emit_progress(progress_callback, action, done, total=None, unit='ед.', message=''):
@@ -30,7 +33,22 @@ def _emit_progress(progress_callback, action, done, total=None, unit='ед.', me
     progress_callback(payload)
 
 
+def _file_signature(path: str):
+    stat = os.stat(path)
+    return (
+        os.path.abspath(path),
+        stat.st_size,
+        getattr(stat, 'st_mtime_ns', int(stat.st_mtime * 1_000_000_000)),
+    )
+
+
 def _hash_file(path: str, chunk_size: int = 1024 * 1024) -> str:
+    signature = _file_signature(path)
+    with _FILE_HASH_CACHE_LOCK:
+        cached = _FILE_HASH_CACHE.get(signature)
+    if cached is not None:
+        return cached
+
     digest = hashlib.sha256()
     with open(path, 'rb') as f:
         while True:
@@ -38,21 +56,14 @@ def _hash_file(path: str, chunk_size: int = 1024 * 1024) -> str:
             if not chunk:
                 break
             digest.update(chunk)
-    return digest.hexdigest()
+    digest_value = digest.hexdigest()
 
+    with _FILE_HASH_CACHE_LOCK:
+        if len(_FILE_HASH_CACHE) > 4096:
+            _FILE_HASH_CACHE.clear()
+        _FILE_HASH_CACHE[signature] = digest_value
 
-def _expand_files_with_pdf(file_paths: Iterable[str]) -> List[str]:
-    expanded = []
-    for path in file_paths:
-        ext = os.path.splitext(path)[1].lower()
-        if ext == '.pdf':
-            try:
-                expanded.extend(pdf_to_images(path))
-            except Exception as exc:
-                logger.error(f'Ошибка конвертации PDF {path}: {exc}')
-        else:
-            expanded.append(path)
-    return expanded
+    return digest_value
 
 
 def _move_clear_for_batch(output_folder, considered_files, found_files, move_mode='copy'):
@@ -110,7 +121,7 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)
         found_files = [p for v in barcodes.values() for p in v]
 
-        _emit_progress(progress_callback, action, 1, 3, 'этап', 'Перемещение notfound/noqrcode')
+        _emit_progress(progress_callback, action, 1, 3, 'этап', 'Перемещение unsorted/noqrcode')
         move_unfound(barcodes, data, output_folder, move_mode)
         move_clear(output_folder, image_folder, found_files, move_mode)
 
@@ -171,21 +182,35 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         failed = 0
         total_archives = len(archives)
         done_archives = 0
-        for student, zip_path in archives.items():
-            recipient = emails.get(student)
-            if not recipient:
-                failed += 1
-                done_archives += 1
-                _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
-                continue
-            try:
-                send_email_smtp(recipient, email_subject, email_body, zip_path)
-                sent += 1
-            except Exception:
-                failed += 1
-            finally:
-                done_archives += 1
-                _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
+        max_send_workers = max(1, min(threads, total_archives or 1))
+        future_to_recipient = {}
+
+        with ThreadPoolExecutor(max_workers=max_send_workers) as executor:
+            for student, zip_path in archives.items():
+                recipient = (emails.get(student, '') or '').strip()
+                if not recipient or not is_valid_email(recipient):
+                    failed += 1
+                    done_archives += 1
+                    _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
+                    continue
+
+                future = executor.submit(send_email_smtp, recipient, email_subject, email_body, zip_path)
+                future_to_recipient[future] = recipient
+
+            for future in as_completed(future_to_recipient):
+                recipient = future_to_recipient[future]
+                try:
+                    if future.result():
+                        sent += 1
+                    else:
+                        failed += 1
+                        logger.warning('Не удалось отправить письмо на %s', recipient)
+                except Exception as exc:
+                    failed += 1
+                    logger.error('Ошибка параллельной отправки %s: %s', recipient, exc)
+                finally:
+                    done_archives += 1
+                    _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
 
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Рассылка завершена')
 
@@ -220,59 +245,91 @@ def process_watch_batch(file_paths: Iterable[str], csv_path: str, name_fields: L
     from barcode_utils import find_barcodes_in_files, split_by_student_folders
 
     data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)
-    incoming_files = [
+    incoming_files = list(dict.fromkeys(
         path for path in file_paths
         if os.path.isfile(path) and os.path.splitext(path)[1].lower() in WATCH_EXTENSIONS
-    ]
+    ))
 
-    unique_files = []
     file_hashes = {}
     duplicates = 0
+    hash_error_records = []
 
     for path in incoming_files:
         try:
-            file_hash = _hash_file(path)
-            file_hashes[path] = file_hash
-            if state and state.has_file_hash(file_hash):
-                duplicates += 1
-                state.add_record(file_hash, '', path, 'duplicate_hash')
-                continue
-            unique_files.append(path)
+            file_hashes[path] = _hash_file(path)
         except Exception as exc:
             logger.error(f'Ошибка хэширования {path}: {exc}')
             if state:
-                state.add_record('', '', path, 'hash_error')
+                hash_error_records.append(('', '', path, 'hash_error', ''))
 
-    expanded_files = _expand_files_with_pdf(unique_files)
-    barcodes = find_barcodes_in_files(expanded_files, max_workers=threads)
+    existing_hashes = state.get_existing_file_hashes(file_hashes.values()) if state else set()
+    unique_files = []
+    duplicate_hash_records = []
+
+    for path in incoming_files:
+        file_hash = file_hashes.get(path)
+        if not file_hash:
+            continue
+        if file_hash in existing_hashes:
+            duplicates += 1
+            if state:
+                duplicate_hash_records.append((file_hash, '', path, 'duplicate_hash', ''))
+            continue
+        unique_files.append(path)
+
+    barcodes = find_barcodes_in_files(unique_files, max_workers=threads)
+
+    existing_qr_pairs = set()
+    if state:
+        existing_qr_pairs = state.get_existing_qr_hash_pairs(
+            {
+                (code, file_hashes.get(path, ''))
+                for code, paths in barcodes.items()
+                for path in paths
+                if file_hashes.get(path)
+            }
+        )
 
     deduped_barcodes = {}
+    duplicate_qr_records = []
     for code, paths in barcodes.items():
         for path in paths:
             file_hash = file_hashes.get(path, '')
-            if state and file_hash and state.has_qr_for_hash(code, file_hash):
+            if state and file_hash and (code, file_hash) in existing_qr_pairs:
                 duplicates += 1
-                state.add_record(file_hash, code, path, 'duplicate_qr')
+                duplicate_qr_records.append((file_hash, code, path, 'duplicate_qr', ''))
                 continue
             deduped_barcodes.setdefault(code, []).append(path)
 
-    found_files = [p for v in deduped_barcodes.values() for p in v]
+    found_files = sorted({p for v in deduped_barcodes.values() for p in v})
     move_unfound(deduped_barcodes, data, output_folder, move_mode)
-    _move_clear_for_batch(output_folder, expanded_files, found_files, move_mode)
+    _move_clear_for_batch(output_folder, unique_files, found_files, move_mode)
     split_by_student_folders(deduped_barcodes, data, output_folder, max_workers=threads)
 
     if state:
+        processed_records = []
         for code, paths in deduped_barcodes.items():
             for path in paths:
-                state.add_record(file_hashes.get(path, ''), code, path, 'processed')
+                processed_records.append((file_hashes.get(path, ''), code, path, 'processed', ''))
 
-        not_found = set(expanded_files) - set(found_files)
+        not_found = set(unique_files) - set(found_files)
+        no_qr_records = []
         for path in not_found:
-            state.add_record(file_hashes.get(path, ''), '', path, 'noqrcode')
+            no_qr_records.append((file_hashes.get(path, ''), '', path, 'noqrcode', ''))
+
+        state.add_records(
+            hash_error_records
+            + duplicate_hash_records
+            + duplicate_qr_records
+            + processed_records
+            + no_qr_records
+        )
+
+    not_found = set(unique_files) - set(found_files)
 
     return {
         'incoming': len(incoming_files),
         'processed': len(found_files),
         'duplicates': duplicates,
-        'unrecognized': len(set(expanded_files) - set(found_files)),
+        'unrecognized': len(not_found),
     }

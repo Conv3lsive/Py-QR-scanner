@@ -7,12 +7,26 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 EXCLUDED_ARCHIVE_FOLDERS = {"unsorted", "noqrcode", "unfound", "state"}
 
 
+def _latest_source_mtime(student_path):
+    latest_mtime = os.path.getmtime(student_path)
+    for root, _, files in os.walk(student_path):
+        for file in files:
+            full_path = os.path.join(root, file)
+            latest_mtime = max(latest_mtime, os.path.getmtime(full_path))
+    return latest_mtime
+
+
 def _zip_one_student(output_folder, student):
     student_path = os.path.join(output_folder, student)
     zip_path = os.path.join(output_folder, f"{student}.zip")
 
     try:
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        latest_mtime = _latest_source_mtime(student_path)
+        if os.path.exists(zip_path) and os.path.getmtime(zip_path) >= latest_mtime:
+            logging.info(f"Архив {zip_path} уже актуален")
+            return student, zip_path
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as zipf:
             for root, _, files in os.walk(student_path):
                 for file in files:
                     full_path = os.path.join(root, file)

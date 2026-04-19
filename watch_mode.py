@@ -14,17 +14,20 @@ logger = logging.getLogger(__name__)
 
 
 class ScanEventHandler(FileSystemEventHandler):
-    def __init__(self, queue_dict, lock):
+    def __init__(self, queue_dict, lock, debounce_sec, wake_event):
         super().__init__()
         self.queue_dict = queue_dict
         self.lock = lock
+        self.debounce_sec = debounce_sec
+        self.wake_event = wake_event
 
     def _track(self, file_path):
         ext = os.path.splitext(file_path)[1].lower()
         if ext not in WATCH_EXTENSIONS:
             return
         with self.lock:
-            self.queue_dict[file_path] = time.time()
+            self.queue_dict[file_path] = time.time() + self.debounce_sec
+        self.wake_event.set()
 
     def on_created(self, event):
         if not event.is_directory:
@@ -67,23 +70,26 @@ class FolderWatcherService:
 
         self.queue_dict = defaultdict(float)
         self.queue_lock = threading.Lock()
+        self.queue_event = threading.Event()
         self.stop_event = threading.Event()
         self.worker_thread = None
         self.observer = None
+        self._stability_state = {}
 
     def _queue_size(self):
         with self.queue_lock:
             return len(self.queue_dict)
 
-    def _requeue_files(self, file_paths):
-        now = time.time()
+    def _requeue_files(self, file_paths, delay_sec=None):
+        ready_at = time.time() + max(0.0, self.stable_interval if delay_sec is None else delay_sec)
         with self.queue_lock:
             for path in file_paths:
-                self.queue_dict[path] = now
+                self.queue_dict[path] = ready_at
+        self.queue_event.set()
 
     def _prime_existing_files(self):
         seeded = 0
-        now = time.time() - self.debounce_sec
+        ready_at = time.time()
         with self.queue_lock:
             for name in os.listdir(self.input_folder):
                 path = os.path.join(self.input_folder, name)
@@ -92,8 +98,10 @@ class FolderWatcherService:
                 ext = os.path.splitext(path)[1].lower()
                 if ext not in WATCH_EXTENSIONS:
                     continue
-                self.queue_dict[path] = now
+                self.queue_dict[path] = ready_at
                 seeded += 1
+        if seeded:
+            self.queue_event.set()
         return seeded
 
     def _sample_paths(self, file_paths):
@@ -129,42 +137,78 @@ class FolderWatcherService:
 
     def _is_stable(self, file_path):
         if not os.path.exists(file_path):
+            self._stability_state.pop(file_path, None)
             return False
 
-        previous = None
-        stable_hits = 0
-        for _ in range(max(1, self.stable_checks)):
-            try:
-                stat = os.stat(file_path)
-                current = (stat.st_size, stat.st_mtime)
-            except FileNotFoundError:
-                return False
+        try:
+            stat = os.stat(file_path)
+            current = (
+                stat.st_size,
+                getattr(stat, 'st_mtime_ns', int(stat.st_mtime * 1_000_000_000)),
+            )
+        except FileNotFoundError:
+            self._stability_state.pop(file_path, None)
+            return False
 
-            if current == previous:
-                stable_hits += 1
-            else:
-                stable_hits = 0
-            previous = current
-            time.sleep(self.stable_interval)
+        required_hits = max(1, self.stable_checks)
+        now = time.time()
+        state = self._stability_state.get(file_path)
 
-        return stable_hits >= 1
+        if state is None:
+            self._stability_state[file_path] = {
+                'signature': current,
+                'hits': 1,
+                'last_checked': now,
+            }
+            return required_hits <= 1
+
+        if now - state['last_checked'] < self.stable_interval:
+            return False
+
+        if current == state['signature']:
+            state['hits'] += 1
+        else:
+            state['signature'] = current
+            state['hits'] = 1
+        state['last_checked'] = now
+
+        if state['hits'] >= required_hits:
+            self._stability_state.pop(file_path, None)
+            return True
+
+        return False
 
     def _drain_ready_files(self):
         ready = []
         now = time.time()
         with self.queue_lock:
             for file_path, ts in list(self.queue_dict.items()):
-                if now - ts >= self.debounce_sec:
+                if ts <= now:
                     ready.append(file_path)
                     self.queue_dict.pop(file_path, None)
         return ready
+
+    def _next_wait_timeout(self):
+        with self.queue_lock:
+            if not self.queue_dict:
+                return self.poll_interval
+            next_ready_at = min(self.queue_dict.values())
+
+        delay = max(0.0, next_ready_at - time.time())
+        if self.poll_interval <= 0:
+            return delay
+        return min(self.poll_interval, delay) if delay > 0 else 0.0
 
     def _worker_loop(self):
         logger.info('Watcher worker started')
         while not self.stop_event.is_set():
             ready_files = self._drain_ready_files()
             if not ready_files:
-                time.sleep(self.poll_interval)
+                self.queue_event.clear()
+                ready_files = self._drain_ready_files()
+                if ready_files:
+                    continue
+                self.queue_event.wait(timeout=self._next_wait_timeout())
                 continue
 
             stable_files = []
@@ -174,6 +218,7 @@ class FolderWatcherService:
             for path in ready_files:
                 if not os.path.exists(path):
                     missing_files.append(path)
+                    self._stability_state.pop(path, None)
                     continue
                 if self._is_stable(path):
                     stable_files.append(path)
@@ -182,7 +227,7 @@ class FolderWatcherService:
 
             requeued = 0
             if unstable_files and self.requeue_unstable:
-                self._requeue_files(unstable_files)
+                self._requeue_files(unstable_files, delay_sec=self.stable_interval)
                 requeued = len(unstable_files)
 
             if not stable_files:
@@ -273,7 +318,7 @@ class FolderWatcherService:
         os.makedirs(self.input_folder, exist_ok=True)
         self.stop_event.clear()
         self.observer = Observer()
-        handler = ScanEventHandler(self.queue_dict, self.queue_lock)
+        handler = ScanEventHandler(self.queue_dict, self.queue_lock, self.debounce_sec, self.queue_event)
         self.observer.schedule(handler, self.input_folder, recursive=False)
         self.observer.start()
 
@@ -296,10 +341,12 @@ class FolderWatcherService:
 
     def stop(self):
         self.stop_event.set()
+        self.queue_event.set()
         if self.observer:
             self.observer.stop()
             self.observer.join(timeout=5)
             self.observer = None
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5)
+        self._stability_state.clear()
         logger.info('Watcher stopped')

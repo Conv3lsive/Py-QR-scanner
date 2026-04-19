@@ -7,6 +7,16 @@ from concurrent.futures import ProcessPoolExecutor
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
 
+def _collect_known_codes(data):
+    known_codes = set()
+    for codes in data.values():
+        for code_list in codes.values():
+            for code in code_list:
+                if code:
+                    known_codes.add(code)
+    return known_codes
+
+
 def get_all_files(folder):
     return {
         os.path.join(folder, f)
@@ -16,15 +26,13 @@ def get_all_files(folder):
 
 
 def move_unfound(barcodes, data, output_folder, move_mode='copy'):
-    barcodes_left = dict(barcodes)
-    for codes in data.values():
-        for codelist in codes.values():
-            for code in codelist:
-                barcodes_left.pop(code, None)
+    known_codes = _collect_known_codes(data)
 
     unfound_dir = os.path.join(output_folder, 'unsorted')
     os.makedirs(unfound_dir, exist_ok=True)
-    for paths in barcodes_left.values():
+    for code, paths in barcodes.items():
+        if code in known_codes:
+            continue
         for src in paths:
             dst = os.path.join(unfound_dir, os.path.basename(src))
             (shutil.move if move_mode == 'move' else shutil.copy)(src, dst)
