@@ -57,7 +57,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Py QR Scanner GUI')
+        self.setWindowTitle('QR-сканер — сортировка файлов')
         self.resize(980, 700)
 
         self.watcher = None
@@ -100,11 +100,11 @@ class MainWindow(QMainWindow):
         self.csv_delimiter_combo.addItems(['auto', ';', ',', '\\t'])
         self.threads_edit = QLineEdit('4')
 
-        self._add_path_row(grid, 0, 'Input folder', self.input_edit, self.pick_folder)
-        self._add_path_row(grid, 1, 'CSV file', self.csv_edit, self.pick_csv)
-        self._add_path_row(grid, 2, 'Output folder', self.output_edit, self.pick_folder)
+        self._add_path_row(grid, 0, 'Папка с исходными файлами', self.input_edit, self.pick_folder)
+        self._add_path_row(grid, 1, 'CSV-таблица', self.csv_edit, self.pick_csv)
+        self._add_path_row(grid, 2, 'Папка результатов', self.output_edit, self.pick_folder)
 
-        grid.addWidget(QLabel('CSV delimiter'), 3, 0)
+        grid.addWidget(QLabel('Разделитель CSV'), 3, 0)
         grid.addWidget(self.csv_delimiter_combo, 3, 1, 1, 2)
 
         grid.addWidget(QLabel('Название столбцов Фамилия,Имя (через пробел)'), 4, 0)
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel('Название столбца с email'), 6, 0)
         grid.addWidget(self.email_field_edit, 6, 1, 1, 2)
 
-        grid.addWidget(QLabel('Threads'), 7, 0)
+        grid.addWidget(QLabel('Потоки'), 7, 0)
         grid.addWidget(self.threads_edit, 7, 1, 1, 2)
 
         layout.addLayout(grid)
@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         self.log_view.setReadOnly(True)
         layout.addWidget(self.log_view)
 
-        self.stats_label = QLabel('Stats: waiting...')
+        self.stats_label = QLabel('Статистика: ожидание...')
         layout.addWidget(self.stats_label)
 
     def _add_path_row(self, grid, row, label, line_edit, picker):
@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
     def _init_action_tabs(self):
         self.tab_action0_btn = QPushButton('Запустить переименование внутри папки')   
         self.tab_action0_btn.clicked.connect(lambda: self.run_simple_action(0, self.tab_action0_btn))
-        self.tabs.addTab(self._wrap_tab('Требуется: Input folder', self.tab_action0_btn, 'action0'), 'Переименование внутри папки')
+        self.tabs.addTab(self._wrap_tab('Требуется: папка с исходными файлами', self.tab_action0_btn, 'action0'), 'Переименование внутри папки')
 
         self.tab_action1_move_mode = QComboBox()
         self.tab_action1_move_mode.addItems(['copy', 'move'])
@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         tab1 = QWidget()
         tab1_layout = QVBoxLayout(tab1)
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel('Move mode:'))
+        row1.addWidget(QLabel('Режим переноса:'))
         row1.addWidget(self.tab_action1_move_mode)
         row1.addStretch(1)
         tab1_layout.addLayout(row1)
@@ -173,15 +173,15 @@ class MainWindow(QMainWindow):
 
         self.tab_action2_btn = QPushButton('Запустить архивацию')
         self.tab_action2_btn.clicked.connect(lambda: self.run_simple_action(2, self.tab_action2_btn))
-        self.tabs.addTab(self._wrap_tab('Требуется: Output folder', self.tab_action2_btn, 'action2'), 'Архивация')
+        self.tabs.addTab(self._wrap_tab('Требуется: папка результатов', self.tab_action2_btn, 'action2'), 'Архивация')
 
         self.tab_action3_btn = QPushButton('Запустить email-рассылку')
         self.tab_action3_btn.clicked.connect(lambda: self.run_simple_action(3, self.tab_action3_btn))
-        self.tabs.addTab(self._wrap_tab('Требуется: CSV, Name fields, Output folder', self.tab_action3_btn, 'action3'), 'Email-рассылка')
+        self.tabs.addTab(self._wrap_tab('Требуется: CSV-таблица, столбцы с именем, папка результатов', self.tab_action3_btn, 'action3'), 'Email-рассылка')
 
         self.tab_action4_btn = QPushButton('Запустить валидацию email')
         self.tab_action4_btn.clicked.connect(lambda: self.run_simple_action(4, self.tab_action4_btn))
-        self.tabs.addTab(self._wrap_tab('Требуется: CSV, Name fields', self.tab_action4_btn, 'action4'), 'Валидация email')
+        self.tabs.addTab(self._wrap_tab('Требуется: CSV-таблица, столбцы с именем', self.tab_action4_btn, 'action4'), 'Валидация email')
 
         self.tab_watch_move_mode = QComboBox()
         self.tab_watch_move_mode.addItems(['copy', 'move'])
@@ -194,7 +194,7 @@ class MainWindow(QMainWindow):
         tab_watch = QWidget()
         tab_watch_layout = QVBoxLayout(tab_watch)
         row_watch = QHBoxLayout()
-        row_watch.addWidget(QLabel('Move mode:'))
+        row_watch.addWidget(QLabel('Режим переноса:'))
         row_watch.addWidget(self.tab_watch_move_mode)
         row_watch.addStretch(1)
         tab_watch_layout.addLayout(row_watch)
@@ -206,15 +206,15 @@ class MainWindow(QMainWindow):
         watch_settings_grid = QGridLayout()
         watch_settings_grid.addWidget(QLabel('Debounce (сек)'), 0, 0)
         watch_settings_grid.addWidget(self.watch_debounce_edit, 0, 1)
-        watch_settings_grid.addWidget(QLabel('Stable checks'), 0, 2)
+        watch_settings_grid.addWidget(QLabel('Проверок стабильности'), 0, 2)
         watch_settings_grid.addWidget(self.watch_stable_checks_edit, 0, 3)
 
-        watch_settings_grid.addWidget(QLabel('Stable interval (сек)'), 1, 0)
+        watch_settings_grid.addWidget(QLabel('Интервал стабильности (сек)'), 1, 0)
         watch_settings_grid.addWidget(self.watch_stable_interval_edit, 1, 1)
-        watch_settings_grid.addWidget(QLabel('Poll interval (сек)'), 1, 2)
+        watch_settings_grid.addWidget(QLabel('Интервал опроса (сек)'), 1, 2)
         watch_settings_grid.addWidget(self.watch_poll_interval_edit, 1, 3)
 
-        watch_settings_grid.addWidget(QLabel('Sample limit'), 2, 0)
+        watch_settings_grid.addWidget(QLabel('Лимит образцов'), 2, 0)
         watch_settings_grid.addWidget(self.watch_sample_limit_edit, 2, 1)
         watch_settings_grid.addWidget(self.watch_process_existing_check, 2, 2, 1, 2)
 
@@ -432,7 +432,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, 'Ошибка', str(exc))
             return
 
-        self._run_with_button(kwargs, button, f'Запуск action {action}...', progress_key=f'action{action}')
+        _action_names = {
+            0: 'Переименование',
+            1: 'Перенос по CSV',
+            2: 'Архивация',
+            3: 'Email-рассылка',
+            4: 'Валидация email',
+        }
+        self._run_with_button(kwargs, button, f'Запуск: {_action_names.get(action, str(action))}...', progress_key=f'action{action}')
 
     def _append_log(self, message):
         self.log_view.append(message)
@@ -447,7 +454,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, 'Ошибка', str(exc))
             return
 
-        self._run_with_button(kwargs, self.tab_action1_btn, 'Запуск action 1...', progress_key='action1')
+        self._run_with_button(kwargs, self.tab_action1_btn, 'Запуск: Перенос по CSV...', progress_key='action1')
 
     def _on_watch_stats(self, stats):
         if QThread.currentThread() != self.thread():
@@ -458,12 +465,12 @@ class MainWindow(QMainWindow):
             self.watch_totals[key] += int(stats.get(key, 0) or 0)
 
         self.stats_label.setText(
-            f"Stats: incoming={stats.get('incoming', 0)} "
-            f"processed={stats.get('processed', 0)} "
-            f"duplicates={stats.get('duplicates', 0)} "
-            f"unrecognized={stats.get('unrecognized', 0)} "
-            f"| ready={stats.get('ready', 0)} stable={stats.get('stable', 0)} "
-            f"requeued={stats.get('requeued', 0)} queue={stats.get('queue_size', 0)}"
+            f"Статистика: получено={stats.get('incoming', 0)} "
+            f"обработано={stats.get('processed', 0)} "
+            f"дублей={stats.get('duplicates', 0)} "
+            f"нераспознано={stats.get('unrecognized', 0)} "
+            f"| готово={stats.get('ready', 0)} стабильных={stats.get('stable', 0)} "
+            f"повторно={stats.get('requeued', 0)} очередь={stats.get('queue_size', 0)}"
         )
 
         processed_total = self.watch_totals['processed']
@@ -471,39 +478,39 @@ class MainWindow(QMainWindow):
         duplicates_total = self.watch_totals['duplicates']
         unrecognized_total = self.watch_totals['unrecognized']
         message = (
-            f"Watcher incoming={incoming_total} duplicates={duplicates_total} "
-            f"unrecognized={unrecognized_total}"
+            f"Наблюдение: получено={incoming_total} дублей={duplicates_total} "
+            f"нераспознано={unrecognized_total}"
         )
         self._update_progress_ui('watch', done=processed_total, total=None, unit='файлов', message=message)
 
         batch_line = (
-            f"Watcher batch: ready={stats.get('ready', 0)} stable={stats.get('stable', 0)} "
-            f"unstable={stats.get('unstable', 0)} requeued={stats.get('requeued', 0)} "
-            f"missing={stats.get('missing', 0)} queue={stats.get('queue_size', 0)} "
-            f"incoming={stats.get('incoming', 0)} processed={stats.get('processed', 0)} "
-            f"duplicates={stats.get('duplicates', 0)} unrecognized={stats.get('unrecognized', 0)}"
+            f"Наблюдение (пакет): готово={stats.get('ready', 0)} стабильных={stats.get('stable', 0)} "
+            f"нестабильных={stats.get('unstable', 0)} повторно={stats.get('requeued', 0)} "
+            f"отсутствует={stats.get('missing', 0)} очередь={stats.get('queue_size', 0)} "
+            f"получено={stats.get('incoming', 0)} обработано={stats.get('processed', 0)} "
+            f"дублей={stats.get('duplicates', 0)} нераспознано={stats.get('unrecognized', 0)}"
         )
         self._append_log(batch_line)
 
         sample_stable = stats.get('sample_stable') or []
         sample_unstable = stats.get('sample_unstable') or []
         if sample_stable:
-            self._append_log(f"  sample stable: {', '.join(sample_stable)}")
+            self._append_log(f"  стабильные файлы: {', '.join(sample_stable)}")
         if sample_unstable:
-            self._append_log(f"  sample unstable: {', '.join(sample_unstable)}")
+            self._append_log(f"  нестабильные файлы: {', '.join(sample_unstable)}")
 
     @staticmethod
     def _parse_positive_float(raw_value, label):
         value = float(raw_value)
         if value <= 0:
-            raise ValueError(f'{label} должно быть больше 0')
+            raise ValueError(f'«{label}» должно быть больше 0')
         return value
 
     @staticmethod
     def _parse_positive_int(raw_value, label):
         value = int(raw_value)
         if value <= 0:
-            raise ValueError(f'{label} должно быть целым числом больше 0')
+            raise ValueError(f'«{label}» должно быть целым числом больше 0')
         return value
 
     def start_watcher(self):
@@ -511,15 +518,15 @@ class MainWindow(QMainWindow):
             args = self._collect_shared_args()
             self._validate_for_action(args, 1)
 
-            debounce_sec = self._parse_positive_float(self.watch_debounce_edit.text().strip() or '2.0', 'Debounce')
-            stable_checks = self._parse_positive_int(self.watch_stable_checks_edit.text().strip() or '2', 'Stable checks')
-            stable_interval = self._parse_positive_float(self.watch_stable_interval_edit.text().strip() or '1.0', 'Stable interval')
-            poll_interval = self._parse_positive_float(self.watch_poll_interval_edit.text().strip() or '0.5', 'Poll interval')
-            sample_limit = self._parse_positive_int(self.watch_sample_limit_edit.text().strip() or '5', 'Sample limit')
+            debounce_sec = self._parse_positive_float(self.watch_debounce_edit.text().strip() or '2.0', 'Задержка (дебаунс)')
+            stable_checks = self._parse_positive_int(self.watch_stable_checks_edit.text().strip() or '2', 'Проверок стабильности')
+            stable_interval = self._parse_positive_float(self.watch_stable_interval_edit.text().strip() or '1.0', 'Интервал стабильности')
+            poll_interval = self._parse_positive_float(self.watch_poll_interval_edit.text().strip() or '0.5', 'Интервал опроса')
+            sample_limit = self._parse_positive_int(self.watch_sample_limit_edit.text().strip() or '5', 'Лимит образцов')
 
             self.watch_started_at = time.monotonic()
             self.watch_totals = {'incoming': 0, 'processed': 0, 'duplicates': 0, 'unrecognized': 0}
-            self._reset_progress_ui('watch', 'Watcher запущен')
+            self._reset_progress_ui('watch', 'Наблюдение запущено')
             state_db = os.path.join(args['output_folder'], 'state', 'processed.sqlite')
             state = ProcessingState(state_db)
             self.watcher = FolderWatcherService(
@@ -543,7 +550,7 @@ class MainWindow(QMainWindow):
                 on_stats=self._on_watch_stats,
             )
             self.watcher.start()
-            self._append_log('Watcher запущен')
+            self._append_log('Наблюдение запущено')
             self.watch_start_btn.setEnabled(False)
             self.watch_stop_btn.setEnabled(True)
         except Exception as exc:
@@ -553,7 +560,7 @@ class MainWindow(QMainWindow):
         if self.watcher:
             self.watcher.stop()
             self.watcher = None
-            self._append_log('Watcher остановлен')
+            self._append_log('Наблюдение остановлено')
             self._complete_progress_ui('watch', is_success=True)
         self.watch_start_btn.setEnabled(True)
         self.watch_stop_btn.setEnabled(False)

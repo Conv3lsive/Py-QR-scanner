@@ -41,7 +41,7 @@ def _run_watch_mode(args):
         requeue_unstable=not args.watch_no_requeue_unstable,
         detailed_stats=args.watch_detailed_stats,
         sample_limit=args.watch_sample_limit,
-        on_stats=lambda stats: logging.info('Watcher stats: %s', stats),
+        on_stats=lambda stats: logging.info('Статистика наблюдения: %s', stats),
     )
     service.start()
     logging.info('Watcher запущен. Ожидание файлов с расширениями: %s', ', '.join(sorted(WATCH_EXTENSIONS)))
