@@ -1,15 +1,18 @@
+import ctypes
+import importlib
 import logging
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import os
-from PIL import Image
-try:
-    from pyzbar.pyzbar import decode as _decode
-except Exception:
-    _decode = None
-import cv2
+import platform
 import shutil
+import sys
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable, Optional
+
+import cv2
 import numpy as np
-from typing import Iterable, Optional, Callable
+from PIL import Image
 
 
 # Настройка логирования
@@ -22,6 +25,167 @@ ROTATION_SEARCH_STAGES = (
     (-30, -20, -10, 10, 20, 30),
     (-25, -15, -5, 5, 15, 25),
 )
+SYSTEM_ZBAR_LIBRARY_PATHS = {
+    'Darwin': (
+        '/opt/homebrew/lib/libzbar.dylib',
+        '/opt/homebrew/opt/zbar/lib/libzbar.dylib',
+        '/usr/local/lib/libzbar.dylib',
+        '/usr/local/opt/zbar/lib/libzbar.dylib',
+        '/opt/local/lib/libzbar.dylib',
+    ),
+    'Linux': (
+        '/usr/lib/libzbar.so',
+        '/usr/lib/libzbar.so.0',
+        '/usr/lib64/libzbar.so',
+        '/usr/lib64/libzbar.so.0',
+        '/usr/local/lib/libzbar.so',
+        '/usr/local/lib/libzbar.so.0',
+        '/lib/x86_64-linux-gnu/libzbar.so.0',
+        '/usr/lib/x86_64-linux-gnu/libzbar.so.0',
+        '/lib/aarch64-linux-gnu/libzbar.so.0',
+        '/usr/lib/aarch64-linux-gnu/libzbar.so.0',
+    ),
+}
+
+
+@dataclass(frozen=True)
+class DecodedValue:
+    data: bytes
+
+
+def _iter_zbar_library_candidates():
+    seen = set()
+
+    for env_name in ('ZBAR_LIB_PATH', 'LIBZBAR_PATH'):
+        raw_path = (os.environ.get(env_name) or '').strip()
+        if not raw_path:
+            continue
+
+        candidate = Path(raw_path).expanduser()
+        candidate_key = str(candidate)
+        if candidate_key not in seen:
+            seen.add(candidate_key)
+            yield candidate
+
+    if platform.system() == 'Darwin':
+        brew_prefix = (os.environ.get('HOMEBREW_PREFIX') or '').strip()
+        if brew_prefix:
+            for raw_path in (
+                os.path.join(brew_prefix, 'lib', 'libzbar.dylib'),
+                os.path.join(brew_prefix, 'opt', 'zbar', 'lib', 'libzbar.dylib'),
+            ):
+                candidate = Path(raw_path)
+                candidate_key = str(candidate)
+                if candidate_key not in seen:
+                    seen.add(candidate_key)
+                    yield candidate
+
+    for raw_path in SYSTEM_ZBAR_LIBRARY_PATHS.get(platform.system(), ()):
+        candidate = Path(raw_path)
+        candidate_key = str(candidate)
+        if candidate_key not in seen:
+            seen.add(candidate_key)
+            yield candidate
+
+
+def _load_system_zbar_library():
+    load_errors = []
+
+    for candidate in _iter_zbar_library_candidates():
+        if not candidate.exists():
+            continue
+
+        try:
+            return ctypes.CDLL(str(candidate)), str(candidate)
+        except OSError as exc:
+            load_errors.append(f'{candidate}: {exc}')
+
+    if load_errors:
+        raise RuntimeError('; '.join(load_errors))
+
+    raise FileNotFoundError('Системная библиотека zbar не найдена в стандартных путях')
+
+
+def _import_pyzbar_decode():
+    pyzbar_module = importlib.import_module('pyzbar.pyzbar')
+    return pyzbar_module.decode
+
+
+def _load_pyzbar_decode():
+    try:
+        return _import_pyzbar_decode(), None
+    except Exception as exc:
+        initial_error = exc
+
+    try:
+        libzbar, library_path = _load_system_zbar_library()
+    except Exception:
+        return None, initial_error
+
+    try:
+        zbar_library = importlib.import_module('pyzbar.zbar_library')
+        original_load = zbar_library.load
+        zbar_library.load = lambda: (libzbar, [])
+        sys.modules.pop('pyzbar.wrapper', None)
+        sys.modules.pop('pyzbar.pyzbar', None)
+        decode_func = _import_pyzbar_decode()
+        logger.info('pyzbar подключен через системную библиотеку zbar: %s', library_path)
+        return decode_func, None
+    except Exception as exc:
+        return None, exc
+    finally:
+        if 'zbar_library' in locals() and 'original_load' in locals():
+            zbar_library.load = original_load
+
+
+def _decode_with_opencv(image):
+    detector = cv2.QRCodeDetector()
+    image_bgr = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
+    results = []
+
+    try:
+        found, decoded_values, _points, _ = detector.detectAndDecodeMulti(image_bgr)
+    except Exception:
+        found, decoded_values = False, []
+
+    if found and decoded_values:
+        for value in decoded_values:
+            normalized = (value or '').strip()
+            if normalized:
+                results.append(DecodedValue(normalized.encode('utf-8')))
+
+    if results:
+        return results
+
+    decoded_value, _points, _ = detector.detectAndDecode(image_bgr)
+    normalized = (decoded_value or '').strip()
+    if not normalized:
+        return []
+
+    return [DecodedValue(normalized.encode('utf-8'))]
+
+
+def _build_decoder_error_message(error):
+    install_hints = {
+        'Darwin': 'macOS: установите системную библиотеку zbar через "brew install zbar".',
+        'Linux': 'Linux: установите системную библиотеку zbar через пакетный менеджер, например "sudo apt install libzbar0".',
+        'Windows': 'Windows: установите ZBar отдельно и добавьте DLL в PATH.',
+    }
+
+    base_message = 'Не удалось инициализировать pyzbar/zbar.'
+    error_text = str(error).strip()
+    if error_text:
+        base_message = f'{base_message} {error_text}'
+
+    platform_hint = install_hints.get(platform.system())
+    if platform_hint:
+        base_message = f'{base_message} {platform_hint}'
+
+    return f'{base_message} Для QR-кодов будет использоваться резервное распознавание через OpenCV.'
+
+
+_decode, _decode_error = _load_pyzbar_decode()
+_decoder_warning_emitted = False
 
 
 def _build_code_to_students(student_data):
@@ -41,9 +205,22 @@ def _emit_progress(progress_callback: Optional[Callable], done: int, total: int,
 
 
 def decode(image):
-    if _decode is None:
-        raise RuntimeError('Не найдена библиотека zbar. Установите её с помощью "pip install zbar"')
-    return _decode(image)
+    global _decoder_warning_emitted
+
+    if _decode is not None:
+        try:
+            decoded_values = _decode(image)
+        except Exception as exc:
+            logger.debug('pyzbar не смог декодировать изображение, используем OpenCV fallback: %s', exc)
+        else:
+            if decoded_values:
+                return decoded_values
+
+    if _decode_error is not None and not _decoder_warning_emitted:
+        logger.warning(_build_decoder_error_message(_decode_error))
+        _decoder_warning_emitted = True
+
+    return _decode_with_opencv(image)
 
 def rotate_image(image, angle):
     """Поворот изображения на заданный угол."""
