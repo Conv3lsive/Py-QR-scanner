@@ -24,9 +24,13 @@
    pip install -r requirements.txt
    ```
 
-2. Для установите системные библиотеки:
-   - `zbar` (для `pyzbar`)
-   - для Windows: скачайте и установите с https://zbar.sourceforge.net
+2. Установите системную библиотеку `zbar`, если вам нужно распознавание через `pyzbar`:
+   - macOS (Homebrew): `brew install zbar`
+   - Ubuntu/Debian: `sudo apt install libzbar0`
+   - Fedora/RHEL: `sudo dnf install zbar`
+   - Windows: установите ZBar отдельно и добавьте DLL в `PATH`
+
+   Важно: `zbar` — это **не** Python-пакет, поэтому `pip install zbar` обычно не подходит. Если `pyzbar` не сможет загрузить системную библиотеку, приложение автоматически переключится на OpenCV для QR-кодов. Для одномерных штрихкодов по-прежнему рекомендуется рабочая связка `pyzbar + zbar`.
 
 3. Пример запуска сортировки по CSV (action=1):
 
