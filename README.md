@@ -178,9 +178,7 @@
 SMTP_EMAIL="your@email.com"
 SMTP_PASSWORD="your_password"
 SMTP_HOST="smtp.example.com"
-SMTP_PORT="465"
+SMTP_PORT=465
 EMAIL_SUBJECT="Ваша работа"
 EMAIL_BODY="Пожалуйста, проверьте архив"
 ```
-
-`sendconfig.py` остаётся fallback-вариантом для обратной совместимости.
