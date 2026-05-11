@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from log_formatting import gui_log_html
 from pipeline import run_action
 from processing_state import ProcessingState
 from watch_mode import FolderWatcherService
@@ -447,7 +448,7 @@ class MainWindow(QMainWindow):
         self._run_with_button(kwargs, button, f'Запуск: {_action_names.get(action, str(action))}...', progress_key=f'action{action}')
 
     def _append_log(self, message):
-        self.log_view.append(message)
+        self.log_view.append(gui_log_html(message))
 
     def run_action1(self):
         try:

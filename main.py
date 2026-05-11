@@ -6,23 +6,28 @@ import multiprocessing
 import os
 import time
 
+from log_formatting import LOG_FORMAT, ColoredLevelFormatter, stream_supports_color
+
 __version__ = '1.0.0'
 
 
 def setup_logging(level=logging.INFO, log_file=None):
-    handlers = [logging.StreamHandler()]
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(
+        ColoredLevelFormatter(LOG_FORMAT, use_color=stream_supports_color(stream_handler.stream))
+    )
+    handlers = [stream_handler]
     if log_file:
         os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
-        handlers.append(
-            logging.handlers.RotatingFileHandler(
-                log_file,
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
-                encoding='utf-8',
-            )
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding='utf-8',
         )
+        file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        handlers.append(file_handler)
     logging.basicConfig(
-        format='%(asctime)s [%(levelname)s] %(message)s',
         level=level,
         handlers=handlers,
     )
