@@ -39,6 +39,25 @@ def get_smtp_config():
     }
 
 
+def get_fallback_smtp_config():
+    """Return fallback SMTP credentials from env, or None if not configured."""
+    load_environment()
+    fallback_email = os.getenv('FALLBACK_SMTP_EMAIL') or _fallback_sendconfig('FALLBACK_SMTP_EMAIL', '')
+    fallback_password = os.getenv('FALLBACK_SMTP_PASSWORD') or _fallback_sendconfig('FALLBACK_SMTP_PASSWORD', '')
+    fallback_host = os.getenv('FALLBACK_SMTP_HOST') or _fallback_sendconfig('FALLBACK_SMTP_HOST', '')
+    fallback_port = int(os.getenv('FALLBACK_SMTP_PORT') or _fallback_sendconfig('FALLBACK_SMTP_PORT', 465))
+
+    if not fallback_email or not fallback_host:
+        return None
+
+    return {
+        'FALLBACK_SMTP_EMAIL': fallback_email,
+        'FALLBACK_SMTP_PASSWORD': fallback_password,
+        'FALLBACK_SMTP_HOST': fallback_host,
+        'FALLBACK_SMTP_PORT': fallback_port,
+    }
+
+
 def get_email_config():
     load_environment()
     email_subject = os.getenv('EMAIL_SUBJECT') or _fallback_sendconfig('EMAIL_SUBJECT', 'Ваша работа')

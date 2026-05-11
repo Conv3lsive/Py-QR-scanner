@@ -3,12 +3,12 @@ import logging
 import os
 import shutil
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, Iterable, List, Optional
 
-from app_config import get_email_config
+from app_config import get_email_config, get_fallback_smtp_config, get_smtp_config
 from csv_utils import read_csv, read_csv_with_email
-from email_utils import is_valid_email, send_email_smtp, validate_emails
+from email_utils import is_valid_email, validate_emails
+from email_delivery import EmailRetryStore, EmailTask, SmtpConfig, send_batch_with_retry
 from file_utils import _safe_destination, move_clear, move_unfound
 from zip_utils import zip_student_folders
 
@@ -178,43 +178,69 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             csv_delimiter=csv_delimiter,
         )
 
-        sent = 0
-        failed = 0
-        total_archives = len(archives)
-        done_archives = 0
-        max_send_workers = max(1, min(threads, total_archives or 1))
-        future_to_recipient = {}
+        # Build per-email tasks; skip invalid addresses immediately
+        smtp_raw = get_smtp_config()
+        primary_cfg = SmtpConfig(
+            email=smtp_raw['SMTP_EMAIL'],
+            password=smtp_raw['SMTP_PASSWORD'],
+            host=smtp_raw['SMTP_HOST'],
+            port=smtp_raw['SMTP_PORT'],
+            name='primary',
+        )
 
-        with ThreadPoolExecutor(max_workers=max_send_workers) as executor:
-            for student, zip_path in archives.items():
-                recipient = (emails.get(student, '') or '').strip()
-                if not recipient or not is_valid_email(recipient):
-                    failed += 1
-                    done_archives += 1
-                    _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
-                    continue
+        fallback_cfg = None
+        fallback_raw = get_fallback_smtp_config()
+        if fallback_raw:
+            fallback_cfg = SmtpConfig(
+                email=fallback_raw['FALLBACK_SMTP_EMAIL'],
+                password=fallback_raw['FALLBACK_SMTP_PASSWORD'],
+                host=fallback_raw['FALLBACK_SMTP_HOST'],
+                port=fallback_raw['FALLBACK_SMTP_PORT'],
+                name='fallback',
+            )
 
-                future = executor.submit(send_email_smtp, recipient, email_subject, email_body, zip_path)
-                future_to_recipient[future] = recipient
+        tasks = []
+        invalid_recipients = 0
+        for student, zip_path in archives.items():
+            recipient = (emails.get(student, '') or '').strip()
+            if not recipient or not is_valid_email(recipient):
+                invalid_recipients += 1
+                logger.warning('Пропущен студент "%s": невалидный email (%r)', student, recipient)
+                continue
+            tasks.append(EmailTask(
+                recipient=recipient,
+                subject=email_subject,
+                body=email_body,
+                attachment_path=zip_path,
+            ))
 
-            for future in as_completed(future_to_recipient):
-                recipient = future_to_recipient[future]
-                try:
-                    if future.result():
-                        sent += 1
-                    else:
-                        failed += 1
-                        logger.warning('Не удалось отправить письмо на %s', recipient)
-                except Exception as exc:
-                    failed += 1
-                    logger.error('Ошибка параллельной отправки %s: %s', recipient, exc)
-                finally:
-                    done_archives += 1
-                    _emit_progress(progress_callback, action, done_archives, total_archives, 'архивов', 'Email-рассылка')
+        db_path = os.path.join(output_folder, 'state', 'email_delivery.sqlite')
+        store = EmailRetryStore(db_path)
+
+        summary = send_batch_with_retry(
+            tasks=tasks,
+            primary_cfg=primary_cfg,
+            fallback_cfg=fallback_cfg,
+            store=store,
+            threads=max(1, min(threads, len(tasks) or 1)),
+            progress_callback=lambda done, total, unit, msg: _emit_progress(
+                progress_callback, action, done, total, unit, msg
+            ),
+        )
 
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Рассылка завершена')
 
-        return {'status': 'ok', 'sent': sent, 'failed': failed}
+        return {
+            'status': 'ok',
+            'sent': summary.sent,
+            'failed': summary.permanent_failed + summary.temp_failed,
+            'permanent_failed': summary.permanent_failed,
+            'temp_failed': summary.temp_failed,
+            'skipped_duplicate': summary.skipped_duplicate,
+            'invalid_recipients': invalid_recipients,
+            'retried': summary.retried,
+            'total_attempts': summary.total_attempts,
+        }
 
     if action == 4:
         if not all([csv_path, name_fields]):
