@@ -1,7 +1,8 @@
+import contextlib
 import os
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 SQLITE_MAX_VARIABLES = 900
@@ -19,10 +20,18 @@ class ProcessingState:
         self._lock = threading.Lock()
         self._init_db()
 
+    @contextlib.contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.db_path)
         conn.execute('PRAGMA journal_mode=WAL;')
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._connect() as conn:
@@ -91,7 +100,7 @@ class ProcessingState:
 
     def add_records(self, records):
         prepared_records = [
-            (file_hash, qr_value, file_path, status, output_path, datetime.utcnow().isoformat())
+            (file_hash, qr_value, file_path, status, output_path, datetime.now(timezone.utc).isoformat())
             for file_hash, qr_value, file_path, status, output_path in records
         ]
         if not prepared_records:

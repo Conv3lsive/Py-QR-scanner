@@ -1,14 +1,30 @@
 
 import argparse
 import logging
+import logging.handlers
+import multiprocessing
 import os
 import time
 
+__version__ = '1.0.0'
 
-def setup_logging(level=logging.INFO):
+
+def setup_logging(level=logging.INFO, log_file=None):
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+        handlers.append(
+            logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding='utf-8',
+            )
+        )
     logging.basicConfig(
         format='%(asctime)s [%(levelname)s] %(message)s',
-        level=level
+        level=level,
+        handlers=handlers,
     )
 
 def _run_watch_mode(args):
@@ -53,8 +69,10 @@ def _run_watch_mode(args):
         service.stop()
 
 def main():
+    multiprocessing.freeze_support()
 
     parser = argparse.ArgumentParser(description="Обработка изображений с баркодами.")
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--image-folder', required=False, help='Путь к папке с изображениями')
     parser.add_argument('--action', type=int, choices=[0, 1, 2, 3, 4, 5], required=False,
                         help='0 — переименование, 1 — перенос по CSV, 2 — архивировать, 3 — рассылка по email, 4 — проверка email, 5 — watch mode')
@@ -66,6 +84,7 @@ def main():
     parser.add_argument('--output-folder', help='Папка для вывода (для action=1)')
     parser.add_argument('--move-mode', choices=['copy', 'move'], default='copy', help='copy или move (для action=1)')
     parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
+    parser.add_argument('--log-file', default=None, help='Путь к файлу логов (с ротацией, необязательно)')
     parser.add_argument('--threads', type=int, default=6, help='Количество потоков/процессов для параллельной обработки (по умолчанию 6)')
     parser.add_argument('--gui', action='store_true', help='Запустить графический интерфейс')
     parser.add_argument('--watch-debounce-sec', type=float, default=2.0, help='Watcher: задержка перед обработкой нового файла (сек)')
@@ -78,7 +97,7 @@ def main():
     parser.add_argument('--watch-sample-limit', type=int, default=5, help='Watcher: сколько имён файлов показывать в sample-логах')
     args = parser.parse_args()
 
-    setup_logging(getattr(logging, args.log_level.upper(), logging.INFO))
+    setup_logging(getattr(logging, args.log_level.upper(), logging.INFO), log_file=args.log_file)
 
     if args.gui:
         from gui_app import run_gui

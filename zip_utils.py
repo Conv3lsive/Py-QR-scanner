@@ -26,7 +26,7 @@ def _zip_one_student(output_folder, student):
             logging.info(f"Архив {zip_path} уже актуален")
             return student, zip_path
 
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as zipf:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
             for root, _, files in os.walk(student_path):
                 for file in files:
                     full_path = os.path.join(root, file)

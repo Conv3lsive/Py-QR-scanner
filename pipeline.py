@@ -9,7 +9,7 @@ from typing import Callable, Dict, Iterable, List, Optional
 from app_config import get_email_config
 from csv_utils import read_csv, read_csv_with_email
 from email_utils import is_valid_email, send_email_smtp, validate_emails
-from file_utils import move_clear, move_unfound
+from file_utils import _safe_destination, move_clear, move_unfound
 from zip_utils import zip_student_folders
 
 
@@ -71,8 +71,8 @@ def _move_clear_for_batch(output_folder, considered_files, found_files, move_mod
     os.makedirs(clear_dir, exist_ok=True)
     clear_files = set(considered_files) - set(found_files)
     for src in clear_files:
-        dst = os.path.join(clear_dir, os.path.basename(src))
-        (shutil.move if move_mode == 'move' else shutil.copy)(src, dst)
+        dst = _safe_destination(clear_dir, os.path.basename(src))
+        (shutil.move if move_mode == 'move' else shutil.copy2)(src, dst)
 
 
 def run_action(action: int, image_folder: Optional[str] = None, csv_path: Optional[str] = None,

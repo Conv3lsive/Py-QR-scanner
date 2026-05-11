@@ -8,6 +8,10 @@ project.MD
 .idea/
 *.iml
 .vscode/settings.json
+include/
+bin/
+.gitignore
+lib/
 
 # macOS / OS junk
 .DS_Store
@@ -18,3 +22,10 @@ project.MD
 .Trashes/
 Thumbs.db
 ehthumbs.db
+project/
+project copy.MD
+main.typ
+main_detailed.typ
+
+# Credentials (local overrides only)
+sendconfig.py

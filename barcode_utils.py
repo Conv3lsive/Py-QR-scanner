@@ -15,8 +15,6 @@ import numpy as np
 from PIL import Image
 
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
@@ -366,7 +364,8 @@ def file_renamer(image_folder, barcode, progress_callback=None):
     for code, paths in barcode.items():
         for idx, path in enumerate(paths, start=1):
             try:
-                new_name = f"{code}_{idx}.jpg"  # Новый формат имени с индексом
+                _, ext = os.path.splitext(path)
+                new_name = f"{code}_{idx}{ext or '.jpg'}"
                 new_path = os.path.join(image_folder, new_name)
                 os.rename(path, new_path)
                 logger.info(f"Файл {path} переименован в {new_name}")
@@ -390,7 +389,13 @@ def split_by_student_folders(barcodes, student_data, output_folder, max_workers=
         try:
             filename = os.path.basename(src_path)
             dst_path = os.path.join(student_folder, filename)
-            shutil.copy(src_path, dst_path)
+            if os.path.exists(dst_path):
+                name, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dst_path):
+                    dst_path = os.path.join(student_folder, f"{name}_{counter}{ext}")
+                    counter += 1
+            shutil.copy2(src_path, dst_path)
             logger.info(f"Файл {filename} скопирован в {student_folder}")
         except Exception as e:
             logger.error(f"Ошибка копирования файла {src_path}: {e}")

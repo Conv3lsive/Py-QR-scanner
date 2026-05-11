@@ -28,7 +28,6 @@ from processing_state import ProcessingState
 from watch_mode import FolderWatcherService
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -399,7 +398,13 @@ class MainWindow(QMainWindow):
 
     def _collect_shared_args(self):
         name_fields = [f for f in self.name_fields_edit.text().split() if f]
-        threads = int(self.threads_edit.text().strip() or '4')
+        threads_raw = self.threads_edit.text().strip() or '4'
+        try:
+            threads = int(threads_raw)
+            if threads < 1:
+                raise ValueError
+        except ValueError:
+            raise ValueError(f'Поле «Потоки» должно быть целым числом ≥ 1, получено: {threads_raw!r}')
         return {
             'image_folder': self.input_edit.text().strip(),
             'csv_path': self.csv_edit.text().strip(),

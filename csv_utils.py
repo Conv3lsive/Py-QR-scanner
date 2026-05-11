@@ -5,6 +5,7 @@ import threading
 
 _CSV_CACHE = {}
 _CSV_CACHE_LOCK = threading.Lock()
+_CSV_CACHE_MAX_ENTRIES = 64
 
 
 def _normalize_delimiter(csv_delimiter):
@@ -156,6 +157,8 @@ def read_csv(csv_path, code_name, student_fields, csv_delimiter='auto'):
 
     data = _read_csv_internal(csv_path, code_name, student_fields, csv_delimiter=csv_delimiter)
     with _CSV_CACHE_LOCK:
+        if len(_CSV_CACHE) >= _CSV_CACHE_MAX_ENTRIES:
+            _CSV_CACHE.clear()
         _CSV_CACHE[cache_key] = _clone_student_data(data)
     return data
 
@@ -180,5 +183,7 @@ def read_csv_with_email(csv_path, code_name, student_fields, email_field='email'
         csv_delimiter=csv_delimiter,
     )
     with _CSV_CACHE_LOCK:
+        if len(_CSV_CACHE) >= _CSV_CACHE_MAX_ENTRIES:
+            _CSV_CACHE.clear()
         _CSV_CACHE[cache_key] = (_clone_student_data(data), dict(emails))
     return data, emails
