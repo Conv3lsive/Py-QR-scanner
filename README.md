@@ -172,15 +172,15 @@
 
 ## SMTP-конфигурация
 
-Рекомендуется `.env` в корне проекта:
+Рекомендуется `.env` в корне проекта. Все значения указываются в кавычках:
 
 ```env
-SMTP_EMAIL=your@email.com
-SMTP_PASSWORD=your_password
-SMTP_HOST=smtp.example.com
-SMTP_PORT=465
-EMAIL_SUBJECT=Ваша работа
-EMAIL_BODY=Пожалуйста, проверьте архив
+SMTP_EMAIL="your@email.com"
+SMTP_PASSWORD="your_password"
+SMTP_HOST="smtp.example.com"
+SMTP_PORT="465"
+EMAIL_SUBJECT="Ваша работа"
+EMAIL_BODY="Пожалуйста, проверьте архив"
 ```
 
 `sendconfig.py` остаётся fallback-вариантом для обратной совместимости.
