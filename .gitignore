@@ -1,0 +1,24 @@
+
+# Python / environment
+.venv/
+bin/
+__pycache__/
+.env
+project.MD
+# IDEs
+.idea/
+*.iml
+.vscode/settings.json
+
+# macOS / OS junk
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+ehthumbs.db
+project.typ
+project copy.MD
+.gitignore

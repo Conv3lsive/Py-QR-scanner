@@ -1,0 +1,6 @@
+Pillow
+pyzbar
+opencv-python
+PySide6
+watchdog
+python-dotenv
