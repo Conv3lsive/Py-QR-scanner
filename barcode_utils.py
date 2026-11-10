@@ -5,6 +5,8 @@ import os
 import platform
 import shutil
 import sys
+import threading
+import uuid
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,11 @@ from PIL import Image
 
 
 logger = logging.getLogger(__name__)
+
+# Сериализует «подбор свободного имени + rename» при параллельном копировании
+# в split_by_student_folders, чтобы одинаковые имена не перезаписывали друг друга.
+_copy_rename_lock = threading.Lock()
+
 
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 ROTATION_SEARCH_STAGES = (
@@ -222,9 +229,20 @@ def decode(image):
 
 def rotate_image(image, angle):
     """Поворот изображения на заданный угол."""
+    width, height = image.size
+    if angle in (90, -90, 270):
+        # При повороте на ±90° холст меняет ориентацию (w↔h), иначе контент
+        # обрезается по исходным размерам.
+        new_width, new_height = height, width
+    else:
+        new_width, new_height = width, height
     image_center = tuple(np.array(image.size) / 2)
     rotation_matrix = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-    rotated_image = cv2.warpAffine(np.array(image), rotation_matrix, image.size)
+    # Смещаем трансляцию под новый холст, чтобы центр поворота оставался
+    # центром результата и контент не уходил за края.
+    rotation_matrix[0, 2] += (new_width - width) / 2
+    rotation_matrix[1, 2] += (new_height - height) / 2
+    rotated_image = cv2.warpAffine(np.array(image), rotation_matrix, (new_width, new_height))
     return Image.fromarray(rotated_image)
 
 def find_best_rotation(image):
@@ -365,7 +383,9 @@ def file_renamer(image_folder, barcode, progress_callback=None):
         for idx, path in enumerate(paths, start=1):
             try:
                 _, ext = os.path.splitext(path)
-                new_name = f"{code}_{idx}{ext or '.jpg'}"
+                # Код из QR может содержать '/' (URL) — санитизируем под имя файла.
+                safe_code = str(code).replace('/', '_').replace('\\', '_').replace('\x00', '_')
+                new_name = f"{safe_code}_{idx}{ext or '.jpg'}"
                 new_path = os.path.join(image_folder, new_name)
                 os.rename(path, new_path)
                 logger.info(f"Файл {path} переименован в {new_name}")
@@ -386,19 +406,31 @@ def split_by_student_folders(barcodes, student_data, output_folder, max_workers=
     scheduled_jobs = set()
 
     def copy_to_student_folder(src_path, student_folder):
+        tmp_path = None
         try:
             filename = os.path.basename(src_path)
-            dst_path = os.path.join(student_folder, filename)
-            if os.path.exists(dst_path):
-                name, ext = os.path.splitext(filename)
-                counter = 1
-                while os.path.exists(dst_path):
-                    dst_path = os.path.join(student_folder, f"{name}_{counter}{ext}")
-                    counter += 1
-            shutil.copy2(src_path, dst_path)
+            # Копируем во временное уникальное имя, затем атомарно переименовываем:
+            # параллельные задачи с одинаковым именем не перезаписывают друг друга.
+            tmp_path = os.path.join(student_folder, f'.{filename}.tmp-{uuid.uuid4().hex}')
+            shutil.copy2(src_path, tmp_path)
+            with _copy_rename_lock:
+                dst_path = os.path.join(student_folder, filename)
+                if os.path.exists(dst_path):
+                    name, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(dst_path):
+                        dst_path = os.path.join(student_folder, f"{name}_{counter}{ext}")
+                        counter += 1
+                os.rename(tmp_path, dst_path)
+                tmp_path = None
             logger.info(f"Файл {filename} скопирован в {student_folder}")
         except Exception as e:
             logger.error(f"Ошибка копирования файла {src_path}: {e}")
+            if tmp_path is not None:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
     tasks = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:

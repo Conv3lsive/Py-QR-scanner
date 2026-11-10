@@ -500,3 +500,40 @@ def test_process_watch_batch_empty_csv_real(monkeypatch, tmp_path):
         [str(p1)], str(csv), ['ФИО'], str(out),
     )
     assert result == {'incoming': 1, 'processed': 1, 'duplicates': 0, 'unrecognized': 0}
+
+def test_run_action_3_status_error_when_delivery_failed(monkeypatch, tmp_path):
+    # Баг №10: рассылка частично/полностью провалилась (failed > 0), но
+    # статус был 'ok' — GUI красил такое «завершено» зелёным.
+    out = tmp_path / 'out'
+    out.mkdir()
+
+    monkeypatch.setattr(pipeline, 'zip_student_folders',
+                        lambda output_folder, max_workers, progress_callback:
+                        {'Иванов': str(out / 'Иванов.zip')})
+    monkeypatch.setattr(
+        pipeline, 'read_csv_with_email',
+        lambda csv_path, code_name, student_fields, email_field='email', csv_delimiter='auto':
+            ({'Иванов': {}}, {'Иванов': 'ivan@example.com'}),
+    )
+    monkeypatch.setattr(pipeline, 'get_email_config',
+                        lambda: {'EMAIL_SUBJECT': 'Тема', 'EMAIL_BODY': 'Тело'})
+    monkeypatch.setattr(pipeline, 'get_smtp_config',
+                        lambda: {'SMTP_EMAIL': 'a@b.com', 'SMTP_PASSWORD': 'p',
+                                 'SMTP_HOST': 'h', 'SMTP_PORT': 465})
+    monkeypatch.setattr(pipeline, 'get_fallback_smtp_config', lambda: None)
+    monkeypatch.setattr(pipeline, 'is_valid_email', lambda email: True)
+    monkeypatch.setattr(
+        pipeline, 'send_batch_with_retry',
+        lambda tasks, primary_cfg, fallback_cfg=None, store=None,
+                threads=4, progress_callback=None:
+            _make_summary(sent=0, permanent_failed=2, temp_failed=1),
+    )
+
+    result = pipeline.run_action(
+        3, csv_path='/c.csv', name_fields=['ФИО'], output_folder=str(out), threads=4,
+    )
+
+    assert result['status'] == 'error'
+    assert result['failed'] == 3
+    assert result['permanent_failed'] == 2
+    assert result['temp_failed'] == 1

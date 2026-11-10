@@ -416,12 +416,6 @@ def test_start_is_idempotent(tmp_path, monkeypatch):
 # Найденный баг: исключение on_stats в ветке batch_skipped роняет worker-поток
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: on_stats вызывается вне try в ветке batch_skipped '
-           '(watch_mode.py:245-261); исключение каллбека роняет worker-поток, '
-           'тогда как в ветке stable (строка 309) оно перехватывается',
-)
 def test_worker_on_stats_exception_is_contained(tmp_path):
     svc = make_service(tmp_path)
     svc.queue_dict[str(tmp_path / 'missing.jpg')] = 0.0

@@ -24,12 +24,20 @@ def _fallback_sendconfig(name: str, default: str = ''):
         return default
 
 
+def _parse_port(raw_value, default: int = 465):
+    """Порт из конфига; нечисловое значение не должно ронять всё приложение."""
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+
 def get_smtp_config():
     load_environment()
     smtp_email = os.getenv('SMTP_EMAIL') or _fallback_sendconfig('SMTP_EMAIL', '')
     smtp_password = os.getenv('SMTP_PASSWORD') or _fallback_sendconfig('SMTP_PASSWORD', '')
     smtp_host = os.getenv('SMTP_HOST') or _fallback_sendconfig('SMTP_HOST', 'smtp.example.com')
-    smtp_port = int(os.getenv('SMTP_PORT') or _fallback_sendconfig('SMTP_PORT', 465))
+    smtp_port = _parse_port(os.getenv('SMTP_PORT') or _fallback_sendconfig('SMTP_PORT', 465))
 
     return {
         'SMTP_EMAIL': smtp_email,
@@ -45,7 +53,7 @@ def get_fallback_smtp_config():
     fallback_email = os.getenv('FALLBACK_SMTP_EMAIL') or _fallback_sendconfig('FALLBACK_SMTP_EMAIL', '')
     fallback_password = os.getenv('FALLBACK_SMTP_PASSWORD') or _fallback_sendconfig('FALLBACK_SMTP_PASSWORD', '')
     fallback_host = os.getenv('FALLBACK_SMTP_HOST') or _fallback_sendconfig('FALLBACK_SMTP_HOST', '')
-    fallback_port = int(os.getenv('FALLBACK_SMTP_PORT') or _fallback_sendconfig('FALLBACK_SMTP_PORT', 465))
+    fallback_port = _parse_port(os.getenv('FALLBACK_SMTP_PORT') or _fallback_sendconfig('FALLBACK_SMTP_PORT', 465))
 
     if not fallback_email or not fallback_host:
         return None

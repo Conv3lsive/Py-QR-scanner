@@ -372,8 +372,8 @@ def test_build_message_no_at_sign_domain_localhost():
 def test_send_one_transport_uses_ssl_login_send(monkeypatch):
     state = _install_fake_smtp(monkeypatch)
     cfg = SmtpConfig('sender@x.com', 'secret', 'smtp.x.com', 465, True, 'primary')
-    with pytest.raises(KeyError):   # баг: ломается на конструировании результата
-        _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    res = _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    assert res.success is True
     tag, host, port, timeout = state['created'][0]
     assert (tag, host, port, timeout) == ('ssl', 'smtp.x.com', 465, 30)
     assert state['starttls'] == 0
@@ -384,8 +384,8 @@ def test_send_one_transport_uses_ssl_login_send(monkeypatch):
 def test_send_one_transport_starttls_non_ssl(monkeypatch):
     state = _install_fake_smtp(monkeypatch)
     cfg = SmtpConfig('sender@x.com', 'secret', 'smtp.x.com', 587, False, 'primary')
-    with pytest.raises(KeyError):
-        _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    res = _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    assert res.success is True
     assert state['created'][0][0] == 'plain'
     assert state['starttls'] == 1
 
@@ -395,17 +395,13 @@ def test_send_one_transport_connect_error_skips_login_send(monkeypatch):
         monkeypatch,
         raise_on_connect=smtplib.SMTPConnectError(421, 'connect fail'))
     cfg = SmtpConfig('sender@x.com', 's', 'smtp.x.com', 465, True, 'primary')
-    with pytest.raises(KeyError):   # classify отрабатывает, но return сломан
-        _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    res = _send_one(EmailTask('to@x.com', 's', 'b', ''), cfg)
+    assert res.success is False and res.permanent is False
     assert state['created']       # конструктор вызывался (connect-ошибка внутри)
     assert state['login'] == []   # до login не дошло
     assert state['send_message'] == []
 
 
-@pytest.mark.xfail(strict=True,
-                   reason='баг: SendAttemptResult(**base, message_id=…) дублирует '
-                          'kwarg message_id (строка 344); успех вместо результата '
-                          'вылетает Exception и классифицируется как temp_fail')
 def test_send_one_success_returns_result(monkeypatch):
     _install_fake_smtp(monkeypatch)
     cfg = SmtpConfig('sender@x.com', 'secret', 'smtp.x.com', 465, True, 'primary')
@@ -415,10 +411,6 @@ def test_send_one_success_returns_result(monkeypatch):
     assert res.attempt_number == 1
 
 
-@pytest.mark.xfail(strict=True,
-                   reason='баг: SendAttemptResult(**base, error_code/error_message/'
-                          'retry_after_sec=…) дублирует kwargs (строка 359) — путь '
-                          'ошибки всегда бросает KeyError("error_code")')
 def test_send_one_auth_error_returns_permanent_result(monkeypatch):
     _install_fake_smtp(
         monkeypatch,
@@ -428,9 +420,6 @@ def test_send_one_auth_error_returns_permanent_result(monkeypatch):
     assert res.success is False and res.permanent is True and res.error_code == 535
 
 
-@pytest.mark.xfail(strict=True,
-                   reason='баг: путь ошибки _send_one бросает KeyError (строка 359), '
-                          'поэтому retry_after_sec из 421-ответа не возвращается')
 def test_send_one_rate_limited_returns_retry_after(monkeypatch):
     _install_fake_smtp(
         monkeypatch,
@@ -707,11 +696,6 @@ def test_multiple_tasks_concurrent_success(clock, no_jitter, primary_cfg, monkey
     assert store.summary().get('sent') == 5
 
 
-@pytest.mark.xfail(strict=True,
-                   reason='баг: _send_one всегда бросает KeyError("error_code") из-за '
-                          'дублирования kwargs в SendAttemptResult, поэтому реальный прогон '
-                          'не доставляет письма и не делает retry: всё падает в temp_failed '
-                          'на первой же попытке')
 def test_orchestrator_end_to_end_via_smtp(clock, no_jitter, primary_cfg, monkeypatch, tmp_path):
     """Полный проход: timeout на первой отправке -> retry -> успех на второй."""
     store = EmailRetryStore(str(tmp_path / 'db.sqlite'))
@@ -753,12 +737,9 @@ def test_orchestrator_end_to_end_via_smtp(clock, no_jitter, primary_cfg, monkeyp
 
 
 # ---------------------------------------------------------------------------
-# Найденные баги (xfail)
+# Исправленные баги (были xfail)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True,
-                   reason='баг: задача, исчерпавшая max_attempts, отправляется '
-                          'повторно при рестарте (лишняя попытка №5)')
 def test_resume_exhausted_task_cannot_exceed_max_attempts(
         clock, no_jitter, primary_cfg, monkeypatch, tmp_path):
     store = EmailRetryStore(str(tmp_path / 'db.sqlite'))

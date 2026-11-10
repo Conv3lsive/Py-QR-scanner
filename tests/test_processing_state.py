@@ -167,11 +167,6 @@ def test_concurrent_reads_and_writes(tmp_path):
     assert not errors
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: processing_state.py:19 os.makedirs("") падает на db_path без каталога '
-           '(FileNotFoundError) вместо создания рядом',
-)
 def test_db_path_without_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     state = ProcessingState('x.sqlite')

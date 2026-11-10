@@ -305,11 +305,6 @@ def test_rotate_image_90_places_marker_bottom_left_for_square():
     assert xs.max() < 30 and ys.min() >= 80  # нижний левый угол
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: rotate_image при ±90° не меняет размеры (не меняет местами w/h) '
-    'и обрезает содержимое неквадратного изображения',
-)
 def test_rotate_image_90_swaps_dimensions_and_preserves_content():
     img = _make_rgb_image(100, 60)  # w=60, h=100
     rot = bu.rotate_image(img, 90)
@@ -563,11 +558,6 @@ def test_file_renamer_missing_source_does_not_crash(tmp_path):
     assert (tmp_path / 'C_2.jpg').exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: file_renamer не переименовывает файлы, если код содержит "/" '
-    '(например QR со ссылкой), и молча оставляет файл на месте',
-)
 def test_file_renamer_handles_code_with_slash(tmp_path):
     p = tmp_path / 'photo.jpg'
     p.write_bytes(b'x')
@@ -630,12 +620,6 @@ def test_split_by_student_folders_collision_suffix_sequential(tmp_path):
     assert (out / 'S' / 'same_1.jpg').exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: гонка в split_by_student_folders — при параллельном копировании '
-    'двух файлов с одинаковым именем в одну папку оба проходят проверку exists() '
-    'до копирования, и один файл молча перезаписывает другой (суффикс _1 не создаётся)',
-)
 def test_split_by_student_folders_collision_no_overwrite_under_concurrency(tmp_path, monkeypatch):
     import threading
 

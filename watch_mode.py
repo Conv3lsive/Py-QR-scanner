@@ -243,22 +243,27 @@ class FolderWatcherService:
                     )
 
                 if self.on_stats:
-                    self.on_stats({
-                        'incoming': 0,
-                        'processed': 0,
-                        'duplicates': 0,
-                        'unrecognized': 0,
-                        'ready': len(ready_files),
-                        'stable': 0,
-                        'unstable': len(unstable_files),
-                        'requeued': requeued,
-                        'missing': len(missing_files),
-                        'queue_size': self._queue_size(),
-                        'sample_ready': self._sample_paths(ready_files),
-                        'sample_stable': [],
-                        'sample_unstable': self._sample_paths(unstable_files),
-                        'batch_skipped': True,
-                    })
+                    try:
+                        self.on_stats({
+                            'incoming': 0,
+                            'processed': 0,
+                            'duplicates': 0,
+                            'unrecognized': 0,
+                            'ready': len(ready_files),
+                            'stable': 0,
+                            'unstable': len(unstable_files),
+                            'requeued': requeued,
+                            'missing': len(missing_files),
+                            'queue_size': self._queue_size(),
+                            'sample_ready': self._sample_paths(ready_files),
+                            'sample_stable': [],
+                            'sample_unstable': self._sample_paths(unstable_files),
+                            'batch_skipped': True,
+                        })
+                    except Exception:
+                        # Коллбек не должен ронять поток наблюдения
+                        # (в ветке обработки пакета он уже защищён try/except).
+                        logger.exception('Ошибка коллбека on_stats (пакет пропущен)')
                 continue
 
             try:

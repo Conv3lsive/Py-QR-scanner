@@ -16,7 +16,11 @@ def _chunked(items, chunk_size):
 class ProcessingState:
     def __init__(self, db_path):
         self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        parent_dir = os.path.dirname(db_path)
+        # Относительное имя файла ('x.sqlite') — каталога нет, makedirs('')
+        # бросил бы FileNotFoundError.
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
 

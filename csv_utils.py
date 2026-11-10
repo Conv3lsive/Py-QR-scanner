@@ -12,7 +12,12 @@ def _normalize_delimiter(csv_delimiter):
     if csv_delimiter is None:
         return None
 
-    value = str(csv_delimiter).strip().lower()
+    raw_value = csv_delimiter if isinstance(csv_delimiter, str) else str(csv_delimiter)
+    if raw_value == '\t':
+        # Реальный символ табуляции: .strip() ниже съел бы его целиком.
+        return '\t'
+
+    value = raw_value.strip().lower()
     if not value or value == 'auto':
         return None
     if value in {'tab', '\\t'}:
@@ -89,7 +94,9 @@ def _build_cache_key(csv_path, csv_delimiter, code_name, student_fields, email_f
         _normalize_delimiter(csv_delimiter) or 'auto',
         (code_name or 'код').strip().lower(),
         tuple(student_fields or ()),
-        (email_field or '').strip().lower(),
+        # None (без email-режима) и '' (email-режим с пустым полем) — разные
+        # ключи: иначе read_csv и read_csv_with_email конфликтуют в одном кэше.
+        (email_field or '').strip().lower() if email_field is not None else None,
     )
 
 
@@ -103,9 +110,11 @@ def _clone_student_data(data):
     }
 
 
-def _read_csv_internal(csv_path, code_name, student_fields, email_field='', csv_delimiter='auto'):
+def _read_csv_internal(csv_path, code_name, student_fields, email_field=None, csv_delimiter='auto'):
+    # email-режим включается любым email_field, включая пустую строку ''
+    # (читать всех студентов с пустыми email); None — режим без email.
     data = {}
-    emails = {} if email_field else None
+    emails = {} if email_field is not None else None
 
     with open(csv_path, 'r', encoding='utf-8-sig', newline='') as file:
         reader = _create_reader(file, csv_delimiter=csv_delimiter)
@@ -149,7 +158,7 @@ def read_csv(csv_path, code_name, student_fields, csv_delimiter='auto'):
     if not code_name:
         code_name = 'код'
 
-    cache_key = _build_cache_key(csv_path, csv_delimiter, code_name, student_fields)
+    cache_key = _build_cache_key(csv_path, csv_delimiter, code_name, student_fields, email_field=None)
     with _CSV_CACHE_LOCK:
         cached = _CSV_CACHE.get(cache_key)
     if cached is not None:

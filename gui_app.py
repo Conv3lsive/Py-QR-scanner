@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import sys
 import time
@@ -354,34 +355,25 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
 
     def _cleanup_worker_thread(self):
+        # Поток действительно остановился: только теперь разблокируем кнопку,
+        # иначе возможен ложный ответ «Занято» при быстром повторном клике.
+        button = self.active_action_button
+        if button:
+            button.setEnabled(True)
+        self.active_action_button = None
+        self.active_progress_key = None
         self.worker = None
         self.worker_thread = None
 
     def _on_worker_finished(self, result):
-        button = self.active_action_button
-        progress_key = self.active_progress_key
-
         self._append_log(f'Операция завершена: {result}')
-        if button:
-            button.setEnabled(True)
-        if progress_key:
-            self._complete_progress_ui(progress_key, is_success=True)
-
-        self.active_action_button = None
-        self.active_progress_key = None
+        if self.active_progress_key:
+            self._complete_progress_ui(self.active_progress_key, is_success=True)
 
     def _on_worker_failed(self, error):
-        button = self.active_action_button
-        progress_key = self.active_progress_key
-
         self._append_log(f'Ошибка: {error}')
-        if button:
-            button.setEnabled(True)
-        if progress_key:
-            self._complete_progress_ui(progress_key, is_success=False)
-
-        self.active_action_button = None
-        self.active_progress_key = None
+        if self.active_progress_key:
+            self._complete_progress_ui(self.active_progress_key, is_success=False)
 
     def _on_worker_progress(self, payload):
         action = payload.get('action')
@@ -508,7 +500,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _parse_positive_float(raw_value, label):
         value = float(raw_value)
-        if value <= 0:
+        if not math.isfinite(value) or value <= 0:
             raise ValueError(f'«{label}» должно быть больше 0')
         return value
 
@@ -574,6 +566,13 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         try:
             self.stop_watcher()
+            if self.worker_thread is not None and self.worker_thread.isRunning():
+                # Не даём уничтожить ещё работающий QThread (крах
+                # «QThread: Destroyed while thread is still running»).
+                # Полная отмена долгой операции — отдельная задача:
+                # quit() срабатывает только между обработками.
+                self.worker_thread.quit()
+                self.worker_thread.wait(3000)
         finally:
             event.accept()
 

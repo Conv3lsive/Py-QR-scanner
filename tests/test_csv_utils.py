@@ -38,11 +38,6 @@ def test_normalize_delimiter(value, expected):
     assert csv_utils._normalize_delimiter(value) == expected
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="баг: _normalize_delimiter('\\t') (реальный символ табуляции) возвращает None, "
-           "т.к. .strip() съедает сам символ табуляции до проверки веток 'tab'/'\\\\t'",
-)
 def test_normalize_delimiter_raw_tab_char():
     assert csv_utils._normalize_delimiter('\t') == '\t'
 
@@ -244,12 +239,6 @@ def test_cache_limit_full_clear(monkeypatch, tmp_path):
     assert len(csv_utils._CSV_CACHE) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='баг: read_csv и read_csv_with_email делят один кэш, но email_field="" даёт тот же '
-           'ключ, что у read_csv; на кэш-хите распаковка dict как (data, emails) ломается '
-           '(AttributeError: str has no attribute items)',
-)
 def test_read_csv_with_email_empty_email_field_no_cache_collision(tmp_path):
     p = tmp_path / 'collision.csv'
     p.write_text('Код;Имя;Email\n1;Иван;ivan@x.com\n2;Петр;petr@x.com\n', encoding='utf-8')

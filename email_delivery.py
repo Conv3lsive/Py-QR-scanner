@@ -314,10 +314,6 @@ def _send_one(task: EmailTask, cfg: SmtpConfig) -> SendAttemptResult:
         task_id=task.task_id,
         attempt_number=attempt_number,
         provider_name=cfg.name,
-        message_id='',
-        error_code=None,
-        error_message='',
-        retry_after_sec=None,
     )
 
     try:
@@ -343,7 +339,9 @@ def _send_one(task: EmailTask, cfg: SmtpConfig) -> SendAttemptResult:
         )
         return SendAttemptResult(
             **base, success=True, permanent=False,
-            rate_limited=False, message_id=msg_id, duration_ms=duration_ms,
+            rate_limited=False, message_id=msg_id,
+            error_code=None, error_message='', retry_after_sec=None,
+            duration_ms=duration_ms,
         )
 
     except Exception as exc:
@@ -360,7 +358,7 @@ def _send_one(task: EmailTask, cfg: SmtpConfig) -> SendAttemptResult:
             **base, success=False, permanent=is_permanent,
             rate_limited=is_rate_limited, error_code=smtp_code,
             error_message=err_msg, retry_after_sec=retry_after,
-            duration_ms=duration_ms,
+            message_id='', duration_ms=duration_ms,
         )
 
 
@@ -590,6 +588,21 @@ def send_batch_with_retry(
             logger.info(
                 '[delivery] task=%s recipient=%s skipped=already_sent',
                 task.task_id[:8], task.recipient,
+            )
+            continue
+        if task.attempt_count >= task.max_attempts:
+            # Бюджет попыток исчерпан (например, задача пришла из
+            # get_pending_tasks после рестарта) — не отправляем повторно.
+            task.status = 'failed'
+            if not task.last_error:
+                task.last_error = 'exhausted max_attempts before batch start'
+            if store:
+                store.upsert_task(task)
+            temp_failed += 1
+            logger.warning(
+                '[delivery] task=%s recipient=%s exhausted max_attempts=%d '
+                'before batch start — skipped',
+                task.task_id[:8], task.recipient, task.max_attempts,
             )
             continue
         if store:

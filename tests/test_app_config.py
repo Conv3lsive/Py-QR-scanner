@@ -65,7 +65,6 @@ def test_smtp_host_from_sendconfig(monkeypatch):
     assert cfg['SMTP_HOST'] == 'mail.corp.ru'
 
 
-@pytest.mark.xfail(strict=True, reason='баг: нечисловой SMTP_PORT роняет всё голым ValueError вместо фолбэка на дефолт')
 def test_smtp_port_non_numeric_falls_back(monkeypatch):
     monkeypatch.setenv('SMTP_PORT', 'abc')
     cfg = app_config.get_smtp_config()
@@ -116,7 +115,6 @@ def test_fallback_env_overrides_sendconfig(monkeypatch):
     assert cfg['FALLBACK_SMTP_HOST'] == 'sc.host'
 
 
-@pytest.mark.xfail(strict=True, reason='баг: нечисловой FALLBACK_SMTP_PORT вызывает голый ValueError')
 def test_fallback_port_non_numeric(monkeypatch):
     monkeypatch.setenv('FALLBACK_SMTP_EMAIL', 'fb@x.com')
     monkeypatch.setenv('FALLBACK_SMTP_HOST', 'fallback.host')

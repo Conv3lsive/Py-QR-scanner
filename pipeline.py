@@ -230,10 +230,13 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
 
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Рассылка завершена')
 
+        failed_count = summary.permanent_failed + summary.temp_failed
         return {
-            'status': 'ok',
+            # 'error', если хотя бы одно письмо не доставлено: GUI красит
+            # «завершено» по 'status' — нечестный зелёный при failed>0 недопустим.
+            'status': 'ok' if failed_count == 0 else 'error',
             'sent': summary.sent,
-            'failed': summary.permanent_failed + summary.temp_failed,
+            'failed': failed_count,
             'permanent_failed': summary.permanent_failed,
             'temp_failed': summary.temp_failed,
             'skipped_duplicate': summary.skipped_duplicate,

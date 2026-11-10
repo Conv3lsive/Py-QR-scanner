@@ -45,12 +45,17 @@ class _FakeRunningThread:
 
     def __init__(self):
         self.quit_calls = 0
+        self.wait_calls = []
 
     def isRunning(self):
         return True
 
     def quit(self):
         self.quit_calls += 1
+
+    def wait(self, timeout=0):
+        self.wait_calls.append(timeout)
+        return True
 
 
 @pytest.fixture
@@ -137,8 +142,6 @@ def test_parse_positive_float_rejects(window, raw):
         MainWindow._parse_positive_float(raw, 'x')
 
 
-@pytest.mark.xfail(strict=True, reason='баг: NaN/Inf проходят валидацию «> 0» — watcher '
-                     'получает debounce=NaN и файлы не обрабатываются (ready_at=NaN)')
 @pytest.mark.parametrize('raw', ['nan', 'inf'])
 def test_parse_positive_float_rejects_nan_inf(window, raw):
     with pytest.raises(ValueError):
@@ -614,10 +617,8 @@ def test_run_with_button_busy_guard(window, msgbox):
     window.worker_thread = None
 
 
-# ----------------------------------------------- найденные баги UI (xfail)
+# ------------------------------- исправленные баги UI (были xfail)
 
-@pytest.mark.xfail(strict=True, reason='баг: кнопка разблокируется до фактической '
-                     'остановки QThread — возможен ложный «Занято» при быстром клике')
 def test_button_stays_disabled_until_thread_stops(window):
     # _on_worker_finished включает кнопку, хотя worker_thread ещё жив:
     # _cleanup_worker_thread сработает только по thread.finished.
@@ -634,8 +635,6 @@ def test_button_stays_disabled_until_thread_stops(window):
     window.worker_thread = None
 
 
-@pytest.mark.xfail(strict=True, reason='баг: closeEvent не останавливает рабочий QThread — '
-                     '«QThread: Destroyed while thread is still running», возможен крах')
 def test_close_event_stops_worker_thread(window):
     fake_thread = _FakeRunningThread()
     window.worker_thread = fake_thread
