@@ -30,3 +30,10 @@ main_detailed.typ
 # Credentials (local overrides only)
 sendconfig.py
 pyvenv.cfg
+
+# Rust build artifacts
+rust/target/
+pyqr_core.so
+
+# Benchmark datasets (regenerable: ./bin/python benchmarks/gen_datasets.py)
+benchmarks/data/
