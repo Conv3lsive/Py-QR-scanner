@@ -28,7 +28,7 @@ NAMES = [
     'Пётр', 'Наталья', 'Андрей', 'Светлана', 'Николай', 'Татьяна', 'Виктор',
     'Юлия', 'Михаил', 'Екатерина', 'Артём', 'Дарья',
 ]
-GRADES = ['9А', '9Б', '10А', '10Б', '11А', '11Б']
+GRADES = ['7А', '7Б', '8А', '8Б', '9А', '9Б', '10А', '10Б', '11А', '11Б']
 
 
 def make_code(i):
@@ -114,9 +114,10 @@ def gen_pairing():
         for suffix in '1234':
             if rng.random() < 0.1:
                 continue  # неполные пары
-            names = ['{}.jpg'.format(base + '-' + suffix)]
+            name_base = '{}-{}'.format(base, suffix)
+            names = ['{}.jpg'.format(name_base)]
             if rng.random() < 0.15:
-                names.append('{}({}).jpg'.format(base + '-' + suffix, 2))
+                names.append('{}(2).jpg'.format(name_base))
             for name in names:
                 with open(os.path.join(pairing_dir, name), 'wb') as fh:
                     fh.write(b'\xff\xd8\xff\xe0' + bytes(512))
