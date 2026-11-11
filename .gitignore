@@ -37,3 +37,4 @@ pyqr_core.so
 
 # Benchmark datasets (regenerable: ./bin/python benchmarks/gen_datasets.py)
 benchmarks/data/
+share/
