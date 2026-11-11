@@ -4,6 +4,8 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
+import backend_switch
+
 
 SQLITE_MAX_VARIABLES = 900
 
@@ -22,7 +24,11 @@ class ProcessingState:
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
         self._lock = threading.Lock()
-        self._init_db()
+        if backend_switch.use_rust():
+            self._rust = backend_switch.pyqr_core.state.ProcessingState(db_path)
+        else:
+            self._rust = None
+            self._init_db()
 
     @contextlib.contextmanager
     def _connect(self):
@@ -63,6 +69,8 @@ class ProcessingState:
         return (qr_value, file_hash) in self.get_existing_qr_hash_pairs([(qr_value, file_hash)])
 
     def get_existing_file_hashes(self, file_hashes):
+        if self._rust is not None:
+            return set(self._rust.get_existing_file_hashes(list(file_hashes)))
         unique_hashes = [file_hash for file_hash in dict.fromkeys(file_hashes) if file_hash]
         if not unique_hashes:
             return set()
@@ -80,6 +88,8 @@ class ProcessingState:
         return existing_hashes
 
     def get_existing_qr_hash_pairs(self, qr_hash_pairs):
+        if self._rust is not None:
+            return set(self._rust.get_existing_qr_hash_pairs(list(qr_hash_pairs)))
         normalized_pairs = [(qr_value, file_hash) for qr_value, file_hash in qr_hash_pairs if qr_value and file_hash]
         if not normalized_pairs:
             return set()
@@ -103,6 +113,9 @@ class ProcessingState:
         self.add_records([(file_hash, qr_value, file_path, status, output_path)])
 
     def add_records(self, records):
+        if self._rust is not None:
+            self._rust.add_records([tuple(record) for record in records])
+            return
         prepared_records = [
             (file_hash, qr_value, file_path, status, output_path, datetime.now(timezone.utc).isoformat())
             for file_hash, qr_value, file_path, status, output_path in records
@@ -121,6 +134,8 @@ class ProcessingState:
                 )
 
     def stats(self):
+        if self._rust is not None:
+            return dict(self._rust.stats())
         with self._connect() as conn:
             rows = conn.execute(
                 'SELECT status, COUNT(*) FROM processed_files GROUP BY status'

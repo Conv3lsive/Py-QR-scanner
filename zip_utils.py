@@ -3,6 +3,8 @@ import zipfile
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import backend_switch
+
 
 EXCLUDED_ARCHIVE_FOLDERS = {"unsorted", "noqrcode", "unfound", "state"}
 
@@ -60,6 +62,15 @@ def zip_student_folders(output_folder, max_workers=6, progress_callback=None):
 
     zipped_paths = {}
     completed = 0
+
+    if backend_switch.use_rust():
+        backend_switch.pyqr_core.zip.zip_student_folders(
+            output_folder, max_workers=max_workers, progress_callback=progress_callback)
+        for student in students:
+            zip_path = os.path.join(output_folder, f"{student}.zip")
+            if os.path.exists(zip_path):
+                zipped_paths[student] = zip_path
+        return zipped_paths
 
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
         futures = {

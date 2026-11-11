@@ -1,4 +1,6 @@
 import ctypes
+
+import backend_switch
 import importlib
 import logging
 import os
@@ -283,6 +285,16 @@ def find_best_rotation(image):
 
 def decode_image_cv(path, image_folder):
     try:
+        if backend_switch.use_rust():
+            results = []
+            seen_codes = set()
+            for barcode_data in backend_switch.pyqr_core.barcode.decode_image(path):
+                if not barcode_data or barcode_data in seen_codes:
+                    continue
+                seen_codes.add(barcode_data)
+                logger.debug(f"QR код найден в {path}: {barcode_data}")
+                results.append((barcode_data, path))
+            return results
         logger.debug(f"Обрабатывается файл: {path}")
         with Image.open(path) as image:
             # Пробуем сначала распознать QR-код без поворота
@@ -318,6 +330,11 @@ def decode_image_cv(path, image_folder):
 
 def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_callback=None):
     barcodes = {}
+
+    if backend_switch.use_rust():
+        return backend_switch.pyqr_core.barcode.find_barcodes_in_files(
+            list(file_paths), max_workers=max_workers, progress_callback=progress_callback)
+
     image_files = list(dict.fromkeys(
         path for path in file_paths
         if os.path.isfile(path) and os.path.splitext(path)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
@@ -373,6 +390,13 @@ def find_barcodes(image_folder, max_workers=6, progress_callback=None):
 
 
 def file_renamer(image_folder, barcode, progress_callback=None):
+    if backend_switch.use_rust():
+        backend_switch.pyqr_core.barcode.file_renamer(
+            image_folder,
+            {str(code): list(paths) for code, paths in barcode.items()},
+            progress_callback=progress_callback)
+        return
+
     total = sum(len(paths) for paths in barcode.values())
     processed = 0
 
@@ -398,6 +422,14 @@ def file_renamer(image_folder, barcode, progress_callback=None):
 
 # Функция распределения файлов по папкам студентов
 def split_by_student_folders(barcodes, student_data, output_folder, max_workers=6, progress_callback=None):
+    if backend_switch.use_rust():
+        backend_switch.pyqr_core.barcode.split_by_student_folders(
+            {str(code): list(paths) for code, paths in barcodes.items()},
+            {student: {col: list(vals) for col, vals in codes.items()}
+             for student, codes in student_data.items()},
+            output_folder, max_workers=max_workers, progress_callback=progress_callback)
+        return
+
     os.makedirs(output_folder, exist_ok=True)
 
     code_to_students = _build_code_to_students(student_data)

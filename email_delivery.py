@@ -42,6 +42,8 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import backend_switch
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -317,18 +319,34 @@ def _send_one(task: EmailTask, cfg: SmtpConfig) -> SendAttemptResult:
     )
 
     try:
-        msg, msg_id = _build_message(task, cfg.email)
-
-        if cfg.use_ssl:
-            smtp_cls = smtplib.SMTP_SSL
+        if backend_switch.use_rust():
+            attachment = None
+            if task.attachment_path and os.path.isfile(task.attachment_path):
+                attachment = task.attachment_path
+            ok, msg_id, rust_err = backend_switch.pyqr_core.email.send_smtp(
+                cfg.host, cfg.port, cfg.email, cfg.password,
+                'ssl' if cfg.use_ssl else 'starttls',
+                cfg.email, task.recipient, task.subject, task.body, attachment)
+            if not ok:
+                stripped = (rust_err or '').strip()
+                # Код в начале строки — оборачиваем в SMTPResponseException,
+                # чтобы classify_error разобрал его как в Python-пути.
+                if stripped[:3].isdigit():
+                    raise smtplib.SMTPResponseException(int(stripped[:3]), stripped)
+                raise RuntimeError(stripped or 'SMTP send failed')
         else:
-            smtp_cls = smtplib.SMTP
+            msg, msg_id = _build_message(task, cfg.email)
 
-        with smtp_cls(cfg.host, cfg.port, timeout=_SMTP_TIMEOUT_SEC) as smtp:
-            if not cfg.use_ssl:
-                smtp.starttls()
-            smtp.login(cfg.email, cfg.password)
-            smtp.send_message(msg)
+            if cfg.use_ssl:
+                smtp_cls = smtplib.SMTP_SSL
+            else:
+                smtp_cls = smtplib.SMTP
+
+            with smtp_cls(cfg.host, cfg.port, timeout=_SMTP_TIMEOUT_SEC) as smtp:
+                if not cfg.use_ssl:
+                    smtp.starttls()
+                smtp.login(cfg.email, cfg.password)
+                smtp.send_message(msg)
 
         duration_ms = int((time.monotonic() - t_start) * 1000)
         logger.info(

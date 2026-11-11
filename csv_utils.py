@@ -2,6 +2,8 @@ import csv
 import os
 import threading
 
+import backend_switch
+
 
 _CSV_CACHE = {}
 _CSV_CACHE_LOCK = threading.Lock()
@@ -164,7 +166,11 @@ def read_csv(csv_path, code_name, student_fields, csv_delimiter='auto'):
     if cached is not None:
         return _clone_student_data(cached)
 
-    data = _read_csv_internal(csv_path, code_name, student_fields, csv_delimiter=csv_delimiter)
+    if backend_switch.use_rust():
+        data = backend_switch.pyqr_core.csv.read_csv(
+            csv_path, code_name, list(student_fields or ()), csv_delimiter)
+    else:
+        data = _read_csv_internal(csv_path, code_name, student_fields, csv_delimiter=csv_delimiter)
     with _CSV_CACHE_LOCK:
         if len(_CSV_CACHE) >= _CSV_CACHE_MAX_ENTRIES:
             _CSV_CACHE.clear()
@@ -184,13 +190,17 @@ def read_csv_with_email(csv_path, code_name, student_fields, email_field='email'
         cached_data, cached_emails = cached
         return _clone_student_data(cached_data), dict(cached_emails)
 
-    data, emails = _read_csv_internal(
-        csv_path,
-        code_name,
-        student_fields,
-        email_field=email_field,
-        csv_delimiter=csv_delimiter,
-    )
+    if backend_switch.use_rust():
+        data, emails = backend_switch.pyqr_core.csv.read_csv_with_email(
+            csv_path, code_name, list(student_fields or ()), email_field, csv_delimiter)
+    else:
+        data, emails = _read_csv_internal(
+            csv_path,
+            code_name,
+            student_fields,
+            email_field=email_field,
+            csv_delimiter=csv_delimiter,
+        )
     with _CSV_CACHE_LOCK:
         if len(_CSV_CACHE) >= _CSV_CACHE_MAX_ENTRIES:
             _CSV_CACHE.clear()

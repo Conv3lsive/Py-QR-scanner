@@ -3,6 +3,8 @@ import re
 import os
 import shutil
 
+import backend_switch
+
 
 SUPPORTED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 logger = logging.getLogger(__name__)
@@ -33,6 +35,8 @@ def _collect_known_codes(data):
 
 
 def get_all_files(folder):
+    if backend_switch.use_rust():
+        return set(backend_switch.pyqr_core.fileops.get_all_files(folder))
     return {
         os.path.join(folder, f)
         for f in os.listdir(folder)
@@ -41,6 +45,11 @@ def get_all_files(folder):
 
 
 def move_unfound(barcodes, data, output_folder, move_mode='copy'):
+    if backend_switch.use_rust():
+        backend_switch.pyqr_core.fileops.move_unfound(
+            barcodes, data, output_folder, move_mode=move_mode)
+        return
+
     known_codes = _collect_known_codes(data)
 
     unfound_dir = os.path.join(output_folder, 'unsorted')
@@ -54,6 +63,11 @@ def move_unfound(barcodes, data, output_folder, move_mode='copy'):
 
 
 def move_clear(output_folder, image_folder, found_files, move_mode='copy'):
+    if backend_switch.use_rust():
+        backend_switch.pyqr_core.fileops.move_clear(
+            output_folder, image_folder, list(found_files), move_mode=move_mode)
+        return
+
     all_files = get_all_files(image_folder)
     clear_files = all_files - set(found_files)
     clear_dir = os.path.join(output_folder, 'noqrcode')
@@ -64,6 +78,11 @@ def move_clear(output_folder, image_folder, found_files, move_mode='copy'):
 
 
 def check_pairing(image_folder):
+    if backend_switch.use_rust():
+        for warning in backend_switch.pyqr_core.fileops.check_pairing(image_folder):
+            logger.warning("%s", warning)
+        return
+
     from collections import defaultdict
     files = [
         f for f in os.listdir(image_folder)
