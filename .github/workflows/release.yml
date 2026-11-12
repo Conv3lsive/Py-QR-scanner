@@ -115,7 +115,7 @@ jobs:
           fi
           "$BIN" --action 1 --image-folder "$T/images" --csv-path "$T/students.csv" \
             --csv-delimiter ';' --name-fields Name Surname --code-field code \
-            --output-folder "$T/out" --move-mode copy --threads 4
+            --output-folder "$T/out" --move-mode copy
           test -f "$T/out/Ivan Ivanov/q1.png"
 
       - name: Упаковка артефактов

@@ -4,6 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import backend_switch
+from worker_pool import auto_workers
 
 
 EXCLUDED_ARCHIVE_FOLDERS = {"unsorted", "noqrcode", "unfound", "state"}
@@ -42,7 +43,7 @@ def _zip_one_student(output_folder, student):
         return student, None
 
 
-def zip_student_folders(output_folder, max_workers=6, progress_callback=None):
+def zip_student_folders(output_folder, max_workers=None, progress_callback=None):
     if not os.path.isdir(output_folder):
         logging.warning(f"Папка для архивации не найдена: {output_folder}")
         return {}
@@ -72,7 +73,7 @@ def zip_student_folders(output_folder, max_workers=6, progress_callback=None):
                 zipped_paths[student] = zip_path
         return zipped_paths
 
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+    with ThreadPoolExecutor(max_workers=auto_workers(total) if max_workers is None else max(1, max_workers)) as executor:
         futures = {
             executor.submit(_zip_one_student, output_folder, student): student
             for student in students

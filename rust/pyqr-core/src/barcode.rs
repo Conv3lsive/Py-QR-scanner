@@ -321,13 +321,26 @@ fn is_supported_image(path: &str) -> bool {
     }
 }
 
+/// Вычисляет число потоков для rayon-пула: явное значение ограничивается
+/// диапазоном [1, total]; авто (None) — по числу логических ядер CPU,
+/// тоже ограничено [1, total].
+fn worker_count(requested: Option<usize>, total: usize) -> usize {
+    match requested {
+        Some(n) => n.max(1).min(total),
+        None => {
+            let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+            cores.max(1).min(total)
+        }
+    }
+}
+
 /// {код: [пути]} — только существующие .jpg/.jpeg/.png, дедупликация путей,
 /// параллельность rayon (max(1, min(max_workers, total))), прогресс как в Python.
 #[pyfunction]
-#[pyo3(signature = (paths, max_workers=6, progress_callback=None))]
+#[pyo3(signature = (paths, max_workers=None, progress_callback=None))]
 pub fn find_barcodes_in_files(
     paths: Vec<String>,
-    max_workers: usize,
+    max_workers: Option<usize>,
     progress_callback: Option<Bound<'_, PyAny>>,
 ) -> PyResult<HashMap<String, Vec<String>>> {
     // Переводим в owned-форму (Send+Sync), чтобы коллбек можно было дергать
@@ -359,7 +372,6 @@ pub fn find_barcodes_in_files(
     }
 
     let total = image_files.len();
-    let worker_count = max_workers.max(1).min(total);
 
     let results: Mutex<HashMap<String, Vec<String>>> = Mutex::new(HashMap::new());
     let done = AtomicUsize::new(0);
@@ -383,7 +395,7 @@ pub fn find_barcodes_in_files(
     };
 
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(worker_count)
+        .num_threads(worker_count(max_workers, total))
         .build();
     Python::with_gil(|py| {
         py.allow_threads(|| {
@@ -535,12 +547,12 @@ fn copy_to_student_folder(src: &str, student_folder: &Path, rename_lock: &Mutex<
 /// rename, анти-коллизия _N, глобальный лок на exists-check+rename).
 /// Возвращает количество скопированных файлов.
 #[pyfunction]
-#[pyo3(signature = (barcodes, student_data, output_folder, max_workers=6, progress_callback=None))]
+#[pyo3(signature = (barcodes, student_data, output_folder, max_workers=None, progress_callback=None))]
 pub fn split_by_student_folders(
     barcodes: HashMap<String, Vec<String>>,
     student_data: HashMap<String, HashMap<String, Vec<String>>>,
     output_folder: String,
-    max_workers: usize,
+    max_workers: Option<usize>,
     progress_callback: Option<Bound<'_, PyAny>>,
 ) -> PyResult<u64> {
     let progress_callback: Option<Py<PyAny>> = progress_callback.map(|cb| cb.unbind());
@@ -595,7 +607,6 @@ pub fn split_by_student_folders(
         return Ok(0);
     }
 
-    let worker_count = max_workers.max(1).min(total);
     let rename_lock = Mutex::new(());
     let copied = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
@@ -615,7 +626,7 @@ pub fn split_by_student_folders(
     };
 
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(worker_count)
+        .num_threads(worker_count(max_workers, total))
         .build();
     Python::with_gil(|py| {
         py.allow_threads(|| {

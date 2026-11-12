@@ -43,6 +43,7 @@ from email.message import EmailMessage
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import backend_switch
+from worker_pool import auto_workers
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,34 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_ATTEMPTS = 4
+
+# Максимум одновременных SMTP-соединений при авто-подборе числа воркеров
+# (threads=None). Почтовые сервисы обычно ограничивают число параллельных
+# подключений: при избытке одновременных отправок они отвечают таймаутами
+# или 421 (rate limit). Поэтому авто-ветка не должна разгоняться до числа
+# логических ядер CPU; она упирается в этот потолок. Порог можно переопределить
+# переменной окружения PYQR_SMTP_MAX_WORKERS (>=1) под лимиты своего провайдера.
+_DEFAULT_AUTO_SEND_WORKERS = 5
+
+
+def _max_auto_send_workers() -> int:
+    """Потолок одновременных SMTP-соединений в авто-режиме.
+
+    По умолчанию — _DEFAULT_AUTO_SEND_WORKERS; оператор может переопределить
+    его через PYQR_SMTP_MAX_WORKERS. Некорректное значение молча игнорируется
+    (с предупреждением в лог) в пользу дефолта.
+    """
+    raw = (os.environ.get('PYQR_SMTP_MAX_WORKERS') or '').strip()
+    if not raw:
+        return _DEFAULT_AUTO_SEND_WORKERS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            'Некорректное значение PYQR_SMTP_MAX_WORKERS=%r — используется %d',
+            raw, _DEFAULT_AUTO_SEND_WORKERS,
+        )
+        return _DEFAULT_AUTO_SEND_WORKERS
 
 # Seconds to wait before each attempt (index = attempt number, 1-based)
 # attempt 1 → immediate (no prior wait)
@@ -564,7 +593,7 @@ def send_batch_with_retry(
     primary_cfg: SmtpConfig,
     fallback_cfg: Optional[SmtpConfig] = None,
     store: Optional[EmailRetryStore] = None,
-    threads: int = 4,
+    threads: Optional[int] = None,
     progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
 ) -> BatchSendSummary:
     """Send all *tasks* using *primary_cfg*, retrying temporary failures.
@@ -588,7 +617,7 @@ def send_batch_with_retry(
     primary_cfg     : primary SMTP provider
     fallback_cfg    : optional secondary SMTP provider
     store           : SQLite persistence; pass None to run in-memory only
-    threads         : parallel send workers
+    threads         : parallel send workers (None → auto, capped by PYQR_SMTP_MAX_WORKERS, default 5)
     progress_callback : (done, total, unit, message) callback
     """
     total = len(tasks)
@@ -627,9 +656,10 @@ def send_batch_with_retry(
             store.upsert_task(task)
         pending.append(task)
 
+    resolved_threads = threads if threads is not None else 'auto'
     logger.info(
-        '[delivery] batch start: total=%d pending=%d skipped_duplicate=%d threads=%d',
-        total, len(pending), skipped_duplicate, threads,
+        '[delivery] batch start: total=%d pending=%d skipped_duplicate=%d threads=%s',
+        total, len(pending), skipped_duplicate, resolved_threads,
     )
 
     done_count = skipped_duplicate
@@ -692,7 +722,7 @@ def send_batch_with_retry(
 
     # --- Initial send pass ---
     retry_queue: List[EmailTask] = []
-    worker_count = max(1, min(threads, len(pending)))
+    worker_count = min(auto_workers(len(pending)), _max_auto_send_workers()) if threads is None else max(1, min(threads, len(pending)))
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = {executor.submit(_attempt, t, primary_cfg): t for t in pending}
         for future in as_completed(futures):
@@ -734,7 +764,7 @@ def send_batch_with_retry(
         )
 
         next_retry: List[EmailTask] = []
-        worker_count_r = max(1, min(threads, len(ready)))
+        worker_count_r = min(auto_workers(len(ready)), _max_auto_send_workers()) if threads is None else max(1, min(threads, len(ready)))
         with ThreadPoolExecutor(max_workers=worker_count_r) as executor:
             futures = {}
             for task in ready:

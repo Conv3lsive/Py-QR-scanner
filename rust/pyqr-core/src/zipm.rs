@@ -2,7 +2,6 @@
 use pyo3::exceptions::PyOSError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::cmp::max;
 use std::fs::File;
 use std::io::copy;
 use std::path::{Path, PathBuf};
@@ -99,10 +98,10 @@ fn zip_one_student(output_folder: &Path, student: &str) -> (String, bool) {
 /// с учётом свежести архива (см. _latest_source_mtime в zip_utils.py).
 /// Параллельность rayon. Возвращает количество созданных архивов.
 #[pyfunction]
-#[pyo3(signature = (output_folder, max_workers=6, progress_callback=None))]
+#[pyo3(signature = (output_folder, max_workers=None, progress_callback=None))]
 pub fn zip_student_folders(
     output_folder: String,
-    max_workers: usize,
+    max_workers: Option<usize>,
     progress_callback: Option<Bound<'_, PyAny>>,
 ) -> PyResult<u64> {
     let out_path = Path::new(&output_folder);
@@ -141,8 +140,17 @@ pub fn zip_student_folders(
         return Ok(0);
     }
 
+    let workers = match max_workers {
+        Some(n) => n.max(1),
+        None => {
+            let cores = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            cores.max(1).min(total)
+        }
+    };
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(max(1, max_workers))
+        .num_threads(workers)
         .build()
         .map_err(|e| {
             PyOSError::new_err(format!("Не удалось создать пул потоков: {}", e))

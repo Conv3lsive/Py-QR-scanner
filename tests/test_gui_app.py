@@ -166,7 +166,6 @@ def test_collect_shared_args_defaults_and_parsing(window):
     window.name_fields_edit.setText('  Фамилия    Имя  ')
     window.code_field_edit.setText('')
     window.email_field_edit.setText('')
-    window.threads_edit.setText('  8 ')
 
     args = window._collect_shared_args()
 
@@ -174,21 +173,7 @@ def test_collect_shared_args_defaults_and_parsing(window):
     assert args['name_fields'] == ['Фамилия', 'Имя']
     assert args['code_field'] == 'код'
     assert args['email_field'] == 'email'
-    assert args['threads'] == 8
     assert args['csv_delimiter'] == 'auto'
-
-
-def test_collect_shared_args_threads_empty_defaults_to_4(window):
-    window.threads_edit.setText('')
-    assert window._collect_shared_args()['threads'] == 4
-
-
-@pytest.mark.parametrize('raw', ['abc', '0', '-3', '1.5'])
-def test_collect_shared_args_threads_invalid(window, raw):
-    window.threads_edit.setText(raw)
-    with pytest.raises(ValueError) as exc:
-        window._collect_shared_args()
-    assert 'Потоки' in str(exc.value)
 
 
 # --------------------------------------------------- структура интерфейса

@@ -44,7 +44,7 @@ class ScanEventHandler(FileSystemEventHandler):
 
 class FolderWatcherService:
     def __init__(self, input_folder, csv_path, name_fields, output_folder, code_field='код',
-                 move_mode='copy', threads=4, state=None, debounce_sec=2.0,
+                 move_mode='copy', threads=None, state=None, debounce_sec=2.0,
                  csv_delimiter='auto',
                  stable_checks=2, stable_interval=1.0, poll_interval=0.5,
                  process_existing_on_start=False, requeue_unstable=True,

@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import threading
+import time
 from typing import Callable, Dict, Iterable, List, Optional
 
 from app_config import get_email_config, get_fallback_smtp_config, get_smtp_config
@@ -80,7 +81,9 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
                email_field: str = 'email',
                csv_delimiter: str = 'auto',
                output_folder: Optional[str] = None, move_mode: str = 'copy',
-               threads: int = 6, state=None, progress_callback: Optional[Callable] = None):
+               threads=None, state=None, progress_callback: Optional[Callable] = None):
+    started = time.monotonic()
+
     if action == 0:
         from barcode_utils import find_barcodes, file_renamer
 
@@ -103,7 +106,15 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         )
 
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Переименование завершено')
-        return {'status': 'ok', 'message': 'Файлы переименованы'}
+        files_done = sum(len(paths) for paths in barcodes.values())
+        elapsed = max(time.monotonic() - started, 1e-6)
+        return {
+            'status': 'ok',
+            'message': 'Файлы переименованы',
+            'files': files_done,
+            'elapsed_ms': int(round(elapsed * 1000)),
+            'speed': round(files_done / elapsed, 2),
+        }
 
     if action == 1:
         from barcode_utils import find_barcodes, split_by_student_folders
@@ -135,11 +146,14 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             ),
         )
         _emit_progress(progress_callback, action, 3, 3, 'этап', 'Распределение завершено')
+        elapsed = max(time.monotonic() - started, 1e-6)
         return {
             'status': 'ok',
             'message': 'Файлы распределены',
             'students': len(data),
             'decoded': len(found_files),
+            'elapsed_ms': int(round(elapsed * 1000)),
+            'speed': round(len(found_files) / elapsed, 2),
         }
 
     if action == 2:
@@ -153,7 +167,13 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             ),
         )
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Архивация завершена')
-        return {'status': 'ok', 'archives': len(archives)}
+        elapsed = max(time.monotonic() - started, 1e-6)
+        return {
+            'status': 'ok',
+            'archives': len(archives),
+            'elapsed_ms': int(round(elapsed * 1000)),
+            'speed': round(len(archives) / elapsed, 2),
+        }
 
     if action == 3:
         if not all([csv_path, output_folder, name_fields]):
@@ -222,7 +242,7 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             primary_cfg=primary_cfg,
             fallback_cfg=fallback_cfg,
             store=store,
-            threads=max(1, min(threads, len(tasks) or 1)),
+            threads=max(1, min(threads, len(tasks) or 1)) if threads is not None else None,
             progress_callback=lambda done, total, unit, msg: _emit_progress(
                 progress_callback, action, done, total, unit, msg
             ),
@@ -231,6 +251,8 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Рассылка завершена')
 
         failed_count = summary.permanent_failed + summary.temp_failed
+        processed = summary.sent + summary.permanent_failed + summary.temp_failed
+        elapsed = max(time.monotonic() - started, 1e-6)
         return {
             # 'error', если хотя бы одно письмо не доставлено: GUI красит
             # «завершено» по 'status' — нечестный зелёный при failed>0 недопустим.
@@ -243,6 +265,9 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             'invalid_recipients': invalid_recipients,
             'retried': summary.retried,
             'total_attempts': summary.total_attempts,
+            'emails': processed,
+            'elapsed_ms': int(round(elapsed * 1000)),
+            'speed': round(processed / elapsed, 2),
         }
 
     if action == 4:
@@ -263,14 +288,20 @@ def run_action(action: int, image_folder: Optional[str] = None, csv_path: Option
             ),
         )
         _emit_progress(progress_callback, action, 1, 1, 'этап', 'Валидация завершена')
-        return {'status': 'ok', 'emails': len(emails)}
+        elapsed = max(time.monotonic() - started, 1e-6)
+        return {
+            'status': 'ok',
+            'emails': len(emails),
+            'elapsed_ms': int(round(elapsed * 1000)),
+            'speed': round(len(emails) / elapsed, 2),
+        }
 
     raise ValueError(f'Неизвестный action: {action}')
 
 
 def process_watch_batch(file_paths: Iterable[str], csv_path: str, name_fields: List[str],
                         output_folder: str, code_field: str = 'код', move_mode: str = 'copy',
-                        threads: int = 4, state=None, csv_delimiter: str = 'auto') -> Dict[str, int]:
+                        threads=None, state=None, csv_delimiter: str = 'auto') -> Dict[str, int]:
     from barcode_utils import find_barcodes_in_files, split_by_student_folders
 
     data = read_csv(csv_path, code_field, name_fields, csv_delimiter=csv_delimiter)

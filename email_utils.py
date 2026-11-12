@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
 
 from app_config import get_smtp_config
+from worker_pool import auto_workers
 
 
 EMAIL_REGEX = re.compile(
@@ -73,7 +74,7 @@ def _validate_one(name_email_pair):
     return name, normalized, valid
 
 
-def validate_emails(emails_dict, max_workers=6, progress_callback=None):
+def validate_emails(emails_dict, max_workers=None, progress_callback=None):
     valid_emails = {}
     invalid_emails = []
 
@@ -84,7 +85,7 @@ def validate_emails(emails_dict, max_workers=6, progress_callback=None):
         return valid_emails, invalid_emails
 
     items = list(emails_dict.items())
-    worker_count = max(1, min(max_workers, total))
+    worker_count = auto_workers(total) if max_workers is None else max(1, min(max_workers, total))
     completed = 0
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:

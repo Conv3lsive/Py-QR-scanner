@@ -52,7 +52,6 @@ def _run_watch_mode(args):
         code_field=args.code_field,
         csv_delimiter=args.csv_delimiter,
         move_mode=args.move_mode,
-        threads=args.threads,
         state=state,
         debounce_sec=args.watch_debounce_sec,
         stable_checks=args.watch_stable_checks,
@@ -90,7 +89,6 @@ def main():
     parser.add_argument('--move-mode', choices=['copy', 'move'], default='copy', help='copy или move (для action=1)')
     parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
     parser.add_argument('--log-file', default=None, help='Путь к файлу логов (с ротацией, необязательно)')
-    parser.add_argument('--threads', type=int, default=6, help='Количество потоков/процессов для параллельной обработки (по умолчанию 6)')
     parser.add_argument('--gui', action='store_true', help='Запустить графический интерфейс')
     parser.add_argument('--watch-debounce-sec', type=float, default=2.0, help='Watcher: задержка перед обработкой нового файла (сек)')
     parser.add_argument('--watch-stable-checks', type=int, default=2, help='Watcher: число проверок стабильности файла')
@@ -129,9 +127,16 @@ def main():
                 csv_delimiter=args.csv_delimiter,
                 output_folder=args.output_folder,
                 move_mode=args.move_mode,
-                threads=args.threads,
             )
-            logging.info('Результат: %s', result)
+            if isinstance(result, dict) and result.get('elapsed_ms') is not None:
+                logging.info(
+                    'Завершено за %.2f с (скорость %.2f ед/с). Результат: %s',
+                    result['elapsed_ms'] / 1000.0,
+                    result.get('speed') or 0.0,
+                    result,
+                )
+            else:
+                logging.info('Результат: %s', result)
     except ValueError as e:
         parser.error(str(e))
 

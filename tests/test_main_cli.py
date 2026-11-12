@@ -132,7 +132,7 @@ def test_main_action_zero_kwargs(monkeypatch):
 
     assert calls['action'] == 0
     assert calls['image_folder'] == '/tmp/img'
-    assert calls['threads'] == 6
+    assert 'threads' not in calls
     assert calls['code_field'] == 'код'
     assert calls['email_field'] == 'email'
     assert calls['csv_delimiter'] == 'auto'
@@ -148,7 +148,7 @@ def test_main_action_one_kwargs(monkeypatch):
     monkeypatch.setattr(sys, 'argv', [
         'main.py', '--action', '1', '--csv-path', '/tmp/a.csv',
         '--name-fields', 'Имя', 'Фамилия', '--output-folder', '/tmp/out',
-        '--move-mode', 'move', '--threads', '3', '--code-field', 'code',
+        '--move-mode', 'move', '--code-field', 'code',
     ])
     main.main()
 
@@ -157,7 +157,6 @@ def test_main_action_one_kwargs(monkeypatch):
     assert calls['name_fields'] == ['Имя', 'Фамилия']
     assert calls['output_folder'] == '/tmp/out'
     assert calls['move_mode'] == 'move'
-    assert calls['threads'] == 3
     assert calls['code_field'] == 'code'
 
 

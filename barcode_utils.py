@@ -1,6 +1,7 @@
 import ctypes
 
 import backend_switch
+from worker_pool import auto_workers
 
 
 def _rust_decode_ready():
@@ -339,7 +340,7 @@ def decode_image_cv(path, image_folder):
         logger.error(f"Ошибка при обработке {path}: {e}")
         return []
 
-def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_callback=None):
+def find_barcodes_in_files(file_paths: Iterable[str], max_workers=None, progress_callback=None):
     barcodes = {}
 
     if _rust_decode_ready():
@@ -357,7 +358,7 @@ def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_ca
 
     total = len(image_files)
     completed = 0
-    worker_count = max(1, min(max_workers, total))
+    worker_count = auto_workers(total) if max_workers is None else max(1, min(max_workers, total))
 
     if worker_count == 1:
         for path in image_files:
@@ -395,7 +396,7 @@ def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_ca
 
     return barcodes
 
-def find_barcodes(image_folder, max_workers=6, progress_callback=None):
+def find_barcodes(image_folder, max_workers=None, progress_callback=None):
     image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder)]
     return find_barcodes_in_files(image_files, max_workers=max_workers, progress_callback=progress_callback)
 
@@ -436,7 +437,7 @@ def file_renamer(image_folder, barcode, progress_callback=None):
 
 
 # Функция распределения файлов по папкам студентов
-def split_by_student_folders(barcodes, student_data, output_folder, max_workers=6, progress_callback=None):
+def split_by_student_folders(barcodes, student_data, output_folder, max_workers=None, progress_callback=None):
     if backend_switch.use_rust():
         backend_switch.pyqr_core.barcode.split_by_student_folders(
             {str(code): list(paths) for code, paths in barcodes.items()},

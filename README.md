@@ -13,6 +13,7 @@
 - Показывать прогресс, скорость, прошедшее время и ETA в GUI для действий 0–4 и watch-режима
 - Работать в фоновом watch-режиме (реакция на новые/изменённые/перемещённые файлы)
 - Избегать повторной обработки в watch-режиме (state SQLite)
+- Автоматически подбирать число потоков по количеству ядер CPU
 
 ---
 
@@ -35,7 +36,7 @@
 3. Пример запуска сортировки по CSV (action=1):
 
    ```bash
-   python main.py --action 1 --image-folder ./images --csv-path ./students.csv --csv-delimiter auto --name-fields Фамилия Имя --code-field код --output-folder ./output --move-mode copy --threads 6
+   python main.py --action 1 --image-folder ./images --csv-path ./students.csv --csv-delimiter auto --name-fields Фамилия Имя --code-field код --output-folder ./output --move-mode copy
    ```
 
 4. GUI:
@@ -98,7 +99,6 @@ SQLite-состояние, SMTP-отправка. GUI/CLI и оркестрац�
 - `--email-field` — имя (или часть имени) колонки с email (по умолчанию `email`)
 - `--output-folder` — выходная папка
 - `--move-mode` — `copy` или `move`
-- `--threads` — число потоков/воркеров
 - `--gui` — запуск графического интерфейса
 - `--watch-debounce-sec` — watcher: задержка перед обработкой нового файла (по умолчанию `2.0`)
 - `--watch-stable-checks` — watcher: число проверок стабильности файла (по умолчанию `2`)

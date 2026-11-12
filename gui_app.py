@@ -99,7 +99,6 @@ class MainWindow(QMainWindow):
         self.email_field_edit = QLineEdit('email')
         self.csv_delimiter_combo = QComboBox()
         self.csv_delimiter_combo.addItems(['auto', ';', ',', '\\t'])
-        self.threads_edit = QLineEdit('4')
 
         self._add_path_row(grid, 0, 'Папка с исходными файлами', self.input_edit, self.pick_folder)
         self._add_path_row(grid, 1, 'CSV-таблица', self.csv_edit, self.pick_csv)
@@ -116,9 +115,6 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel('Название столбца с email'), 6, 0)
         grid.addWidget(self.email_field_edit, 6, 1, 1, 2)
-
-        grid.addWidget(QLabel('Потоки'), 7, 0)
-        grid.addWidget(self.threads_edit, 7, 1, 1, 2)
 
         layout.addLayout(grid)
 
@@ -291,6 +287,7 @@ class MainWindow(QMainWindow):
 
         state['last_done'] = done
         state['last_total'] = normalized_total
+        state['last_unit'] = unit
 
         elapsed = max(0.001, time.monotonic() - state['started_at'])
         speed = done / elapsed if done > 0 else 0.0
@@ -326,8 +323,14 @@ class MainWindow(QMainWindow):
             bar.setValue(bar.maximum() if is_success else bar.value())
 
         elapsed = max(0, time.monotonic() - state['started_at'])
+        done = int(state.get('last_done') or 0)
+        unit = state.get('last_unit') or 'ед'
+        speed = (done / elapsed) if elapsed > 0 else 0.0
         suffix = 'завершено' if is_success else 'завершено с ошибкой'
-        label.setText(f'{suffix} | прошло: {self._format_seconds(elapsed)}')
+        label.setText(
+            f'{suffix} | {done} {unit} | скорость: {speed:.2f} {unit}/с | '
+            f'прошло: {self._format_seconds(elapsed)}'
+        )
         self.progress_state[key] = None
 
     def _run_with_button(self, kwargs, button, start_message, progress_key):
@@ -366,7 +369,15 @@ class MainWindow(QMainWindow):
         self.worker_thread = None
 
     def _on_worker_finished(self, result):
-        self._append_log(f'Операция завершена: {result}')
+        if isinstance(result, dict) and result.get('elapsed_ms') is not None:
+            elapsed_s = result['elapsed_ms'] / 1000.0
+            speed = result.get('speed')
+            self._append_log(
+                f'Операция завершена за {elapsed_s:.2f} с '
+                f'(скорость {speed if speed is not None else 0.0:.2f} ед/с): {result}'
+            )
+        else:
+            self._append_log(f'Операция завершена: {result}')
         if self.active_progress_key:
             self._complete_progress_ui(self.active_progress_key, is_success=True)
 
@@ -391,13 +402,6 @@ class MainWindow(QMainWindow):
 
     def _collect_shared_args(self):
         name_fields = [f for f in self.name_fields_edit.text().split() if f]
-        threads_raw = self.threads_edit.text().strip() or '4'
-        try:
-            threads = int(threads_raw)
-            if threads < 1:
-                raise ValueError
-        except ValueError:
-            raise ValueError(f'Поле «Потоки» должно быть целым числом ≥ 1, получено: {threads_raw!r}')
         return {
             'image_folder': self.input_edit.text().strip(),
             'csv_path': self.csv_edit.text().strip(),
@@ -406,7 +410,6 @@ class MainWindow(QMainWindow):
             'code_field': self.code_field_edit.text().strip() or 'код',
             'email_field': self.email_field_edit.text().strip() or 'email',
             'csv_delimiter': self.csv_delimiter_combo.currentText(),
-            'threads': threads,
         }
 
     def _validate_for_action(self, args, action):
@@ -535,7 +538,6 @@ class MainWindow(QMainWindow):
                 code_field=args['code_field'],
                 csv_delimiter=args['csv_delimiter'],
                 move_mode=self.tab_watch_move_mode.currentText(),
-                threads=args['threads'],
                 state=state,
                 debounce_sec=debounce_sec,
                 stable_checks=stable_checks,

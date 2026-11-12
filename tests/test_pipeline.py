@@ -87,6 +87,10 @@ def test_run_action_0_calls_find_barcodes_and_renamer(monkeypatch):
     assert calls['find'] == [('/tmp/img', 3)]
     assert calls['rename'][0][0] == '/tmp/img'
     assert calls['rename'][0][1] == {'C1': ['a.jpg']}
+    # Новые ключи времени/скорости присутствуют и валидны
+    assert result['files'] == 1
+    assert isinstance(result['elapsed_ms'], int) and result['elapsed_ms'] >= 0
+    assert isinstance(result['speed'], (int, float)) and result['speed'] >= 0
 
 
 def test_run_action_0_requires_image_folder():
