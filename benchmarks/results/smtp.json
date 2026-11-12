@@ -1,0 +1,24 @@
+{
+ "meta": {
+  "backend": "smtp-clients",
+  "count": 50
+ },
+ "results": {
+  "smtp_python_50msg": {
+   "median_ms": 5062.314,
+   "runs_ms": [
+    5070.979,
+    5062.314,
+    5036.435
+   ]
+  },
+  "smtp_rust_50msg": {
+   "median_ms": 22.207,
+   "runs_ms": [
+    23.195,
+    22.207,
+    16.393
+   ]
+  }
+ }
+}

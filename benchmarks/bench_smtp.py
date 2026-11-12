@@ -8,11 +8,10 @@
   ./bin/python benchmarks/bench_smtp.py --out benchmarks/results/smtp.json
 """
 import argparse
-import asyncore
 import json
 import os
 import smtplib
-import smtpd
+import socket
 import statistics
 import sys
 import threading
@@ -28,22 +27,65 @@ if not backend_switch.RUST_AVAILABLE:
     print('pyqr_core не собран — Rust-часть пропущена')
 
 
-class _Sink(smtpd.SMTPServer):
-    def __init__(self, *args, **kwargs):
-        smtpd.SMTPServer.__init__(self, *args, **kwargs)
-        self.count = 0
+class SyncSink(object):
+    """Минимальный синхронный SMTP-синк: accept-цикл + поток на соединение
+    (asyncore с поллингом оказался узким горлышком для бенчмарка)."""
 
-    def process_message(self, peer, mailfrom, rcpttos, data, **kwargs):
-        self.count += 1
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(('127.0.0.1', 0))
+        self.sock.listen(128)
+        self.port = self.sock.getsockname()[1]
+        self.count = 0
+        self._lock = threading.Lock()
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
+
+    def _handle(self, conn):
+        try:
+            conn.sendall(b'220 sink ESMTP\r\n')
+            buf = b''
+            in_data = False
+            while True:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    return
+                buf += chunk
+                while b'\r\n' in buf:
+                    line, buf = buf.split(b'\r\n', 1)
+                    if in_data:
+                        if line == b'.':
+                            in_data = False
+                            conn.sendall(b'250 ok\r\n')
+                            with self._lock:
+                                self.count += 1
+                        continue
+                    cmd = line.upper()
+                    if cmd.startswith(b'EHLO') or cmd.startswith(b'HELO'):
+                        conn.sendall(b'250-sink\r\n250 8BITMIME\r\n')
+                    elif cmd.startswith(b'DATA'):
+                        conn.sendall(b'354 go\r\n')
+                        in_data = True
+                    elif cmd.startswith(b'QUIT'):
+                        conn.sendall(b'221 bye\r\n')
+                        conn.close()
+                        return
+                    else:
+                        conn.sendall(b'250 ok\r\n')
+        except OSError:
+            pass
 
 
 def start_sink():
-    sink = _Sink(('127.0.0.1', 0), None)
-    thread = threading.Thread(target=asyncore.loop, kwargs={'timeout': 0.1},
-                              daemon=True)
-    thread.start()
-    port = sink.socket.getsockname()[1]
-    return sink, port
+    return SyncSink()
 
 
 def build_python_message(i):
@@ -95,8 +137,9 @@ def main():
     parser.add_argument('--reps', type=int, default=3)
     args = parser.parse_args()
 
-    sink, port = start_sink()
-    time.sleep(0.3)
+    sink = start_sink()
+    port = sink.port
+    time.sleep(0.2)
 
     results = {}
     results['smtp_python_50msg'] = timed(bench_python(port, args.count), args.reps)
