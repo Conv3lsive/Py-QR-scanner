@@ -42,3 +42,6 @@ target/
 packaging/dist/
 packaging/build/
 packaging/lib/
+PyQR-scanner.spec
+build/
+dist/

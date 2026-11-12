@@ -8,6 +8,15 @@ Rust-загрузчик pyqr_core и Python-fallback читают этот env �
 import os
 import sys
 
+# Имя zbar-библиотеки в бандле (packaging/lib) по платформам.
+_ZBAR_NAMES = (
+    'libzbar.dylib',     # macOS
+    'libzbar.so.0',      # Linux
+    'libzbar-64.dll',    # Windows (из wheel pyzbar)
+    'libzbar.dll',
+    'libzbar.so',
+)
+
 
 def _bundle_dir():
     if hasattr(sys, '_MEIPASS'):  # onefile: каталог распаковки
@@ -15,14 +24,21 @@ def _bundle_dir():
     return os.path.dirname(os.path.abspath(sys.executable))
 
 
-def main():
+def _prime_zbar():
     base = _bundle_dir()
-    bundled_zbar = os.path.join(base, 'lib', 'libzbar.dylib')
-    if os.path.isfile(bundled_zbar):
-        os.environ.setdefault('ZBAR_LIB_PATH', bundled_zbar)
+    for name in _ZBAR_NAMES:
+        candidate = os.path.join(base, 'lib', name)
+        if os.path.isfile(candidate):
+            os.environ.setdefault('ZBAR_LIB_PATH', candidate)
+            return
 
-    # Двойной клик по .app = запуск без аргументов — открываем GUI сразу
-    # (иначе windowed-билд молча упадёт на parser.error «укажите --action»).
+
+def main():
+    _prime_zbar()
+
+    # Двойной клик по приложению = запуск без аргументов — открываем GUI
+    # сразу (иначе windowed-билд молча упадёт на parser.error «укажите
+    # --action»).
     if len(sys.argv) == 1:
         sys.argv.append('--gui')
 
