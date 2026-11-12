@@ -39,3 +39,6 @@ pyqr_core.so
 benchmarks/data/
 share/
 target/
+packaging/dist/
+packaging/build/
+packaging/lib/

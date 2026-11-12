@@ -1,0 +1,34 @@
+# -*- coding: utf-8 -*-
+"""Точка входа замороженного (PyInstaller) билда Py-QR-scanner.
+
+Подкладывает бандленый libzbar в ZBAR_LIB_PATH ДО импорта модулей проекта:
+Rust-загрузчик pyqr_core и Python-fallback читают этот env при первом
+обращении. Затем делегирует обычному CLI (main.main), включая --gui.
+"""
+import os
+import sys
+
+
+def _bundle_dir():
+    if hasattr(sys, '_MEIPASS'):  # onefile: каталог распаковки
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(sys.executable))
+
+
+def main():
+    base = _bundle_dir()
+    bundled_zbar = os.path.join(base, 'lib', 'libzbar.dylib')
+    if os.path.isfile(bundled_zbar):
+        os.environ.setdefault('ZBAR_LIB_PATH', bundled_zbar)
+
+    # Двойной клик по .app = запуск без аргументов — открываем GUI сразу
+    # (иначе windowed-билд молча упадёт на parser.error «укажите --action»).
+    if len(sys.argv) == 1:
+        sys.argv.append('--gui')
+
+    import main as cli
+    cli.main()
+
+
+if __name__ == '__main__':
+    main()
