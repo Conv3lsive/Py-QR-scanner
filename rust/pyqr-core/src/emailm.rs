@@ -22,6 +22,7 @@ const SMTP_TIMEOUT_SEC: u64 = 30;
 #[pyfunction]
 #[pyo3(signature = (host, port, username, password, mode, sender, recipient, subject, body, attachment_path=None))]
 pub fn send_smtp(
+    py: Python<'_>,
     host: String,
     port: u16,
     username: String,
@@ -33,18 +34,23 @@ pub fn send_smtp(
     body: String,
     attachment_path: Option<String>,
 ) -> PyResult<(bool, String, String)> {
-    match send_smtp_inner(
-        &host,
-        port,
-        &username,
-        &password,
-        &mode,
-        &sender,
-        &recipient,
-        &subject,
-        &body,
-        attachment_path.as_deref(),
-    ) {
+    // Блокирующее сетевое I/O без GIL — иначе Python-потоки (в т.ч. локальные
+    // тестовые SMTP-синки и поток наблюдения) замерзают на время отправки.
+    let result = py.allow_threads(|| {
+        send_smtp_inner(
+            &host,
+            port,
+            &username,
+            &password,
+            &mode,
+            &sender,
+            &recipient,
+            &subject,
+            &body,
+            attachment_path.as_deref(),
+        )
+    });
+    match result {
         Ok(message_id) => Ok((true, message_id, String::new())),
         Err(error) => Ok((false, String::new(), error)),
     }

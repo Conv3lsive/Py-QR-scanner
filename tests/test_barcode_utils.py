@@ -85,8 +85,15 @@ def test_rotation_search_stages_structure():
         assert 0 not in stage  # нулевой угол пробуется отдельно в decode_image_cv
 
 
-def test_module_degrades_gracefully_without_pyzbar():
-    # pyzbar в этом venv не установлен: импорт не должен падать.
+def test_module_degrades_gracefully_without_pyzbar(monkeypatch):
+    # Деградация проверяется имитацией отсутствия pyzbar (в venv для бенчей
+    # он установлен) — декодер обязан молча уйти в OpenCV-фолбэк.
+    monkeypatch.setattr(bu, '_decode', None)
+    monkeypatch.setattr(bu, '_decode_error', ImportError('нет pyzbar'))
+
+    from PIL import Image
+    blank = Image.new('RGB', (40, 40), 'white')
+    assert bu.decode(blank) == []
     assert bu._decode is None
     assert isinstance(bu._decode_error, Exception)
 

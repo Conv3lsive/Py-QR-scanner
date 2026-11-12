@@ -43,9 +43,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ```c
 zbar_image_scanner_t* zbar_image_scanner_create(void);
 int  zbar_image_scanner_set_config(zbar_image_scanner_t*, int symbology, int config, int value);
-// symbology ZBAR_QRCODE = 0; config ZBAR_CFG_ENABLE = 0; value 1
+// symbology ZBAR_QRCODE = 64 (zbar.h 0.23; НЕ 0!); config ZBAR_CFG_ENABLE = 0; value 1
 zbar_image_t* zbar_image_create(void);
-void zbar_image_set_format(zbar_image_t*, unsigned long fmt);   // fmt = 'Y800' fourcc: 0x59383030
+void zbar_image_set_format(zbar_image_t*, unsigned long fmt);   // fmt = 'Y800' fourcc: 0x30303859 (НЕ 0x59383030!)
 void zbar_image_set_size(zbar_image_t*, unsigned w, unsigned h);
 void zbar_image_set_data(zbar_image_t*, const void *data, unsigned long byte_len, void *cleanup /*NULL*/);
 int  zbar_scan_image(zbar_image_scanner_t*, zbar_image_t*);     // >0 = найдено символов, <0 = ошибка

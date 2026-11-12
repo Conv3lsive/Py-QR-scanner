@@ -7,6 +7,14 @@ mod fileops;
 mod state;
 mod zipm;
 
+/// Пэд раскладки __LINKEDIT: длина имени этого экспортируемого символа
+/// сдвигает экспорт-три/symtab так, что strtab (LC_SYMTAB.stroff) ложится
+/// на 8-байтовую границу — новый dyld macOS 26+ иначе роняет dlopen
+/// ("mis-aligned LINKEDIT string pool", баг ld-27106). Длину подбирает
+/// rust/build.sh после сборки (проверка — rust/fix_linkedit.py --check).
+#[no_mangle]
+pub extern "C" fn pyqr_pad() {}
+
 #[pymodule]
 fn pyqr_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();

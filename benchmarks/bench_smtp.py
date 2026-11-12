@@ -69,7 +69,7 @@ def bench_rust(port, count):
     def run():
         for i in range(count):
             ok, _msg_id, err = send(
-                '127.0.0.1', port, 'bench', '', 'plain',
+                '127.0.0.1', port, '', '', 'plain',
                 'bench@example.com', 'student{}@example.com'.format(i),
                 'Бенчмарк письмо {}'.format(i),
                 'Тело письма №{} — проверка скорости SMTP-клиента.\n'.format(i) * 3,

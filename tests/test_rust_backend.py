@@ -3,9 +3,11 @@
 
 Каждый тест гоняет одну и ту же операцию дважды — на чистом Python
 (PYQR_BACKEND=python) и на Rust (PYQR_BACKEND=rust) — и сравнивает
-результаты. Если pyqr_core не собран, весь файл пропускается.
+результаты. Переключение бэкенда — monkeypatch.setenv внутри итерации
+(фикстуры-двойники здесь не годятся: обе поставили бы env на весь тест).
+
+Если pyqr_core не собран, весь файл пропускается.
 """
-import json
 import os
 import shutil
 import sqlite3
@@ -21,16 +23,13 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.fixture
-def py_backend(monkeypatch):
-    monkeypatch.setenv('PYQR_BACKEND', 'python')
-    yield backend_switch.pyqr_core
-
-
-@pytest.fixture
-def rust_backend(monkeypatch):
-    monkeypatch.setenv('PYQR_BACKEND', 'rust')
-    yield backend_switch.pyqr_core
+def _run_both(monkeypatch, fn):
+    """fn(backend_name) -> результат; возвращает {'python':…, 'rust':…}."""
+    out = {}
+    for backend in ('python', 'rust'):
+        monkeypatch.setenv('PYQR_BACKEND', backend)
+        out[backend] = fn(backend)
+    return out
 
 
 # ---------------------------------------------------------------- CSV
@@ -53,38 +52,60 @@ def csv_file(tmp_path):
 
 
 @pytest.mark.parametrize('delimiter', ['auto', ';', 'tab', None])
-def test_read_csv_equivalence(py_backend, rust_backend, csv_file, delimiter):
+def test_read_csv_equivalence(monkeypatch, csv_file, delimiter):
     import csv_utils
-    py = csv_utils.read_csv(csv_file, 'код', ('Фамилия', 'Имя', 'Класс'),
-                            csv_delimiter=delimiter)
-    ru = csv_utils.read_csv(csv_file, 'код', ('Фамилия', 'Имя', 'Класс'),
-                            csv_delimiter=delimiter)
-    assert py == ru
+
+    def run(_backend):
+        return csv_utils.read_csv(csv_file, 'код', ('Фамилия', 'Имя', 'Класс'),
+                                  csv_delimiter=delimiter)
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    if delimiter in ('auto', ';'):
+        assert results['python']['Иванов Пётр 9А']['код'] == [
+            '1234000000001', 'https://x.example/2']
+
+
+def test_read_csv_tab_content_equivalence(monkeypatch, tmp_path):
+    import csv_utils
+    path = tmp_path / 'tab.csv'
+    path.write_text('Фамилия\tИмя\tкод\nИван\tИван\t111\n', encoding='utf-8')
+
+    def run(_backend):
+        return csv_utils.read_csv(str(path), 'код', ('Фамилия', 'Имя'),
+                                  csv_delimiter='\t')
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    assert results['python']['Иван Иван']['код'] == ['111']
 
 
 @pytest.mark.parametrize('email_field', ['email', ''])
-def test_read_csv_with_email_equivalence(py_backend, rust_backend, csv_file,
-                                         email_field):
+def test_read_csv_with_email_equivalence(monkeypatch, csv_file, email_field):
     import csv_utils
-    py = csv_utils.read_csv_with_email(csv_file, 'код',
-                                       ('Фамилия', 'Имя', 'Класс'),
-                                       email_field=email_field)
-    ru = csv_utils.read_csv_with_email(csv_file, 'код',
-                                       ('Фамилия', 'Имя', 'Класс'),
-                                       email_field=email_field)
-    assert py[0] == ru[0]
-    assert py[1] == ru[1]
+
+    def run(_backend):
+        return csv_utils.read_csv_with_email(csv_file, 'код',
+                                             ('Фамилия', 'Имя', 'Класс'),
+                                             email_field=email_field)
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'][0] == results['rust'][0]
+    assert results['python'][1] == results['rust'][1]
 
 
-def test_read_csv_comma_delimiter_equivalence(py_backend, rust_backend, tmp_path):
+def test_read_csv_comma_delimiter_equivalence(monkeypatch, tmp_path):
     import csv_utils
     path = tmp_path / 'comma.csv'
-    path.write_text(
-        'Фамилия,Имя,код\nИван,Иван,111\nИван,Иван,222\n',
-        encoding='utf-8')
-    fields = ('Фамилия', 'Имя')
-    assert csv_utils.read_csv(str(path), 'код', fields) == \
-        csv_utils.read_csv(str(path), 'код', fields)
+    path.write_text('Фамилия,Имя,код\nИван,Иван,111\nИван,Иван,222\n',
+                    encoding='utf-8')
+
+    def run(_backend):
+        return csv_utils.read_csv(str(path), 'код', ('Фамилия', 'Имя'))
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    assert results['python']['Иван Иван']['код'] == ['111', '222']
 
 
 # ------------------------------------------------------------- barcode
@@ -107,70 +128,70 @@ def qr_files(tmp_path):
     return [plain, rotated]
 
 
-def test_decode_image_equivalence(py_backend, rust_backend, qr_files):
+def test_decode_image_equivalence(monkeypatch, qr_files):
     import barcode_utils
-    for path in qr_files:
-        py = [c for c, _ in barcode_utils.decode_image_cv(path, None)]
-        ru = [c for c, _ in barcode_utils.decode_image_cv(path, None)]
-        assert py == ru
-        assert py, 'Python-бэкенд ничего не декодировал (проблема фикстуры)'
+
+    def run(_backend):
+        return [[c for c, _ in barcode_utils.decode_image_cv(p, None)]
+                for p in qr_files]
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    assert all(results['python']), 'фикстура ничего не декодировала'
 
 
-def test_find_barcodes_in_files_equivalence(py_backend, rust_backend, qr_files):
+def test_find_barcodes_in_files_equivalence(monkeypatch, qr_files):
     import barcode_utils
-    py = barcode_utils.find_barcodes_in_files(list(qr_files), max_workers=2)
-    ru = barcode_utils.find_barcodes_in_files(list(qr_files), max_workers=2)
-    assert {k: sorted(v) for k, v in py.items()} == {k: sorted(v) for k, v in ru.items()}
+
+    def run(_backend):
+        barcodes = barcode_utils.find_barcodes_in_files(list(qr_files),
+                                                        max_workers=2)
+        return {k: sorted(v) for k, v in barcodes.items()}
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
 
 
-def test_file_renamer_equivalence(py_backend, rust_backend, qr_files, tmp_path):
+def test_file_renamer_equivalence(monkeypatch, qr_files, tmp_path):
     import barcode_utils
-    src_dir = tmp_path / 'src'
-    src_dir.mkdir()
-    for path in qr_files:
-        shutil.copy2(path, str(src_dir / os.path.basename(path)))
+    codes = [barcode_utils.decode_image_cv(p, None)[0][0] for p in qr_files]
 
-    barcodes = {}
-    for path in qr_files:
-        code = barcode_utils.decode_image_cv(path, None)[0][0]
-        barcodes[code] = [os.path.join(str(src_dir), os.path.basename(path))]
+    def run(backend):
+        folder = tmp_path / ('renamer_' + backend)
+        folder.mkdir()
+        for path in qr_files:
+            shutil.copy2(path, str(folder / os.path.basename(path)))
+        barcodes = {}
+        for code, path in zip(codes, qr_files):
+            barcodes.setdefault(code, []).append(
+                os.path.join(str(folder), os.path.basename(path)))
+        barcode_utils.file_renamer(str(folder), barcodes)
+        return sorted(os.listdir(str(folder)))
 
-    # Rust-путь переименовывает реальные файлы
-    barcode_utils.file_renamer(str(src_dir), {k: list(v) for k, v in barcodes.items()})
-    rust_names = sorted(os.listdir(str(src_dir)))
-    assert rust_names
-    assert all(name.startswith(tuple(barcodes.keys())) for name in rust_names), rust_names
-
-    # Python-путь на копии — те же имена
-    py_dir = tmp_path / 'py'
-    py_dir.mkdir()
-    py_barcodes = {code: [os.path.join(str(py_dir), os.path.basename(p))]
-                   for code, p in ((k, v[0]) for k, v in barcodes.items())}
-    for path in qr_files:
-        shutil.copy2(path, str(py_dir / os.path.basename(path)))
-    barcode_utils.file_renamer(str(py_dir), py_barcodes)
-    assert sorted(os.listdir(str(py_dir))) == rust_names
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    # '/'+ '\\' + '\x00' в коде санитизируются под имя файла
+    assert all('/' not in name and '\\' not in name for name in results['rust'])
+    assert len(results['rust']) == 2
 
 
-def test_split_by_student_folders_equivalence(py_backend, rust_backend,
-                                              qr_files, tmp_path):
+def test_split_by_student_folders_equivalence(monkeypatch, qr_files, tmp_path):
     import barcode_utils
     codes = [barcode_utils.decode_image_cv(p, None)[0][0] for p in qr_files]
     student_data = {'Иван Иванов 9А': {'код': list(codes)}}
     barcodes = {codes[0]: [qr_files[0]], codes[1]: [qr_files[1]]}
 
-    out_rust = tmp_path / 'out_rust'
-    out_py = tmp_path / 'out_py'
-    barcode_utils.split_by_student_folders(barcodes, student_data, str(out_rust),
-                                           max_workers=2)
-    barcode_utils.split_by_student_folders(barcodes, student_data, str(out_py),
-                                           max_workers=2)
-
-    def listing(root):
+    def run(backend):
+        out = tmp_path / ('out_' + backend)
+        barcode_utils.split_by_student_folders(barcodes, student_data,
+                                               str(out), max_workers=2)
         return sorted(
-            os.path.relpath(os.path.join(dirpath, f), str(root))
-            for dirpath, _, files in os.walk(str(root)) for f in files)
-    assert listing(out_rust) == listing(out_py)
+            os.path.relpath(os.path.join(dirpath, f), str(out))
+            for dirpath, _, files in os.walk(str(out)) for f in files)
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    assert len(results['rust']) == 2
 
 
 # ------------------------------------------------------------- fileops
@@ -189,84 +210,101 @@ def fileops_tree(tmp_path):
     return str(images), data, barcodes
 
 
-def test_move_unfound_equivalence(py_backend, rust_backend, tmp_path, fileops_tree):
+def test_move_unfound_equivalence(monkeypatch, tmp_path, fileops_tree):
     import file_utils
     images, data, barcodes = fileops_tree
-    listing = {}
-    for backend_name in ('rust', 'python'):
-        out = tmp_path / ('unfound_' + backend_name)
-        file_utils.move_unfound(barcodes, data, str(out), move_mode='copy')
-        listing[backend_name] = sorted(os.listdir(os.path.join(str(out), 'unsorted')))
-    assert listing['rust'] == listing['python'] == ['img_1.jpg', 'img_2.jpg']
+
+    def run(backend):
+        src = tmp_path / ('imgs_' + backend)
+        shutil.copytree(images, str(src))
+        bc = {code: [str(src / os.path.basename(p)) for p in paths]
+              for code, paths in barcodes.items()}
+        out = tmp_path / ('unfound_' + backend)
+        file_utils.move_unfound(bc, data, str(out), move_mode='copy')
+        return sorted(os.listdir(os.path.join(str(out), 'unsorted')))
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust'] == ['img_1.jpg', 'img_2.jpg']
 
 
-def test_move_clear_equivalence(py_backend, rust_backend, tmp_path, fileops_tree):
+def test_move_clear_equivalence(monkeypatch, tmp_path, fileops_tree):
     import file_utils
     images, data, barcodes = fileops_tree
-    found = barcodes['KNOWN-1'] + barcodes['UNKNOWN-9']
-    listing = {}
-    for backend_name in ('rust', 'python'):
-        shutil.rmtree(images + '_' + backend_name, ignore_errors=True)
-        shutil.copytree(images, images + '_' + backend_name)
-        out = tmp_path / ('clear_' + backend_name)
-        file_utils.move_clear(str(out), images + '_' + backend_name, found,
-                              move_mode='copy')
-        listing[backend_name] = sorted(os.listdir(os.path.join(str(out), 'noqrcode')))
-    assert listing['rust'] == listing['python'] == ['img_3.jpg']
+
+    def run(backend):
+        src = tmp_path / ('imgs_' + backend)
+        shutil.copytree(images, str(src))
+        found = [str(src / os.path.basename(p))
+                 for paths in barcodes.values() for p in paths]
+        out = tmp_path / ('clear_' + backend)
+        file_utils.move_clear(str(out), str(src), found, move_mode='copy')
+        return sorted(os.listdir(os.path.join(str(out), 'noqrcode')))
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust'] == ['img_3.jpg']
 
 
-def test_check_pairing_equivalence(py_backend, rust_backend, tmp_path, caplog):
+def test_check_pairing_equivalence(monkeypatch, tmp_path, caplog):
     import file_utils
     folder = tmp_path / 'pairing'
     folder.mkdir()
-    for name in ('100-1.jpg', '100-2.jpg', '101-1.jpg', '101-3.jpg', '102-2.jpg', '102-4.jpg'):
+    for name in ('100-1.jpg', '100-2.jpg', '101-1.jpg', '101-3.jpg',
+                 '102-2.jpg', '102-4.jpg'):
         (folder / name).write_bytes(b'x')
 
-    with caplog.at_level('WARNING'):
-        file_utils.check_pairing(str(folder))
-    rust_warnings = sorted(caplog.messages)
-    caplog.clear()
-    with caplog.at_level('WARNING'):
-        file_utils.check_pairing(str(folder))
-    py_warnings = sorted(caplog.messages)
-    assert rust_warnings == py_warnings
-    assert len(py_warnings) == 3  # 101: нет 2; 102: нет пары 1-2; 102: нет пары 3-4
+    def run(_backend):
+        caplog.clear()
+        with caplog.at_level('WARNING'):
+            file_utils.check_pairing(str(folder))
+        return sorted(caplog.messages)
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
+    # 101: нет 2 и нет 4; 102: нет 1 и нет 3 → 4 предупреждения
+    assert len(results['rust']) == 4
 
 
 # ----------------------------------------------------------------- zip
 
-def test_zip_equivalence(py_backend, rust_backend, tmp_path):
+def test_zip_equivalence(monkeypatch, tmp_path):
     import zip_utils
-    outputs = {}
-    for backend_name in ('rust', 'python'):
-        src = tmp_path / ('students_' + backend_name)
+
+    def run(backend):
+        src = tmp_path / ('students_' + backend)
         (src / 'Иван Иванов').mkdir(parents=True)
         (src / 'unsorted').mkdir()
         for i in range(3):
             (src / 'Иван Иванов' / ('f{}.txt'.format(i))).write_text('x' * 100)
         result = zip_utils.zip_student_folders(str(src), max_workers=2)
-        outputs[backend_name] = (sorted(result),
-                                 sorted(zipfile.ZipFile(result['Иван Иванов']).namelist()))
-    assert outputs['rust'] == outputs['python']
+        return (sorted(result),
+                sorted(zipfile.ZipFile(result['Иван Иванов']).namelist()))
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
 
 
-def test_zip_freshness_equivalence(py_backend, rust_backend, tmp_path):
+def test_zip_freshness_equivalence(monkeypatch, tmp_path):
     import zip_utils
-    src = tmp_path / 'students'
-    (src / 'Иван').mkdir(parents=True)
-    f = src / 'Иван' / 'f.txt'
-    f.write_text('data')
-    zip_utils.zip_student_folders(str(src))
-    assert os.path.exists(str(src / 'Иван.zip'))
-    # Архив свежее файла — повторная архивация не должна пересоздавать его
-    before = os.path.getmtime(str(src / 'Иван.zip'))
-    zip_utils.zip_student_folders(str(src))
-    assert os.path.getmtime(str(src / 'Иван.zip')) == before
+
+    def run(_backend):
+        src = tmp_path / 'students'
+        if src.exists():
+            shutil.rmtree(str(src))
+        (src / 'Иван').mkdir(parents=True)
+        (src / 'Иван' / 'f.txt').write_text('data')
+        zip_utils.zip_student_folders(str(src))
+        assert os.path.exists(str(src / 'Иван.zip'))
+        before = os.path.getmtime(str(src / 'Иван.zip'))
+        zip_utils.zip_student_folders(str(src))
+        return os.path.getmtime(str(src / 'Иван.zip')) == before
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust'] is True
 
 
 # --------------------------------------------------------------- state
 
-def test_state_equivalence(py_backend, rust_backend, tmp_path):
+def test_state_equivalence(monkeypatch, tmp_path):
     import processing_state
     records = [
         ('hash-{}'.format(i), 'qr-{}'.format(i % 3), 'file_{}.png'.format(i),
@@ -274,13 +312,12 @@ def test_state_equivalence(py_backend, rust_backend, tmp_path):
         for i in range(200)
     ]
 
-    results = {}
-    for backend_name in ('rust', 'python'):
-        db_path = tmp_path / ('state_{}.sqlite'.format(backend_name))
+    def run(backend):
+        db_path = tmp_path / ('state_{}.sqlite'.format(backend))
         state = processing_state.ProcessingState(str(db_path))
         state.add_records(records)
         state.add_record('hash-x', 'qr-x', 'file_x.png', 'failed', 'out/path')
-        results[backend_name] = {
+        return {
             'existing': sorted(state.get_existing_file_hashes(
                 ['hash-1', 'hash-199', 'hash-nope', ''])),
             'pairs': sorted(state.get_existing_qr_hash_pairs(
@@ -290,31 +327,35 @@ def test_state_equivalence(py_backend, rust_backend, tmp_path):
                     state.has_qr_for_hash('qr-2', 'hash-2'),
                     state.has_file_hash('nope')),
         }
-    assert results['rust'] == results['python']
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
     assert results['python']['stats']['processed'] == 100
     assert results['python']['stats']['failed'] == 1
 
 
-def test_state_schema_parity(py_backend, rust_backend, tmp_path):
+def test_state_schema_parity(monkeypatch, tmp_path):
     import processing_state
-    schemas = {}
-    for backend_name in ('rust', 'python'):
-        db_path = tmp_path / ('schema_{}.sqlite'.format(backend_name))
+
+    def run(backend):
+        db_path = tmp_path / ('schema_{}.sqlite'.format(backend))
         processing_state.ProcessingState(str(db_path))
         conn = sqlite3.connect(str(db_path))
         rows = conn.execute(
             "SELECT type, name, sql FROM sqlite_master "
             "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").fetchall()
-        schemas[backend_name] = [
-            (t, n, (sql or '').replace('\n', ' ').replace('  ', ' ').strip())
-            for t, n, sql in rows]
         conn.close()
-    assert schemas['rust'] == schemas['python']
+        return [(t, n, ' '.join((sql or '').split()))
+                for t, n, sql in rows]
+
+    results = _run_both(monkeypatch, run)
+    assert results['python'] == results['rust']
 
 
-def test_state_db_interop(py_backend, rust_backend, tmp_path):
+def test_state_db_interop(monkeypatch, tmp_path):
     """База, созданная Rust-бэкендом, читается стандартным sqlite3-модулем."""
     import processing_state
+    monkeypatch.setenv('PYQR_BACKEND', 'rust')
     db_path = tmp_path / 'interop.sqlite'
     state = processing_state.ProcessingState(str(db_path))
     state.add_record('h', 'q', 'f.png', 'processed')
