@@ -1,6 +1,13 @@
 //! Сборка cdylib-расширения cargo'ом без maturin: аргументы линка только для
-//! финальной dylib (не для proc-macro/зависимостей).
+//! финальной dylib (не для proc-macro/зависимостей) и только на macOS.
 fn main() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os != "macos" {
+        // Windows/Linux: pyo3 сам находит python-библиотеку (python3.lib на
+        // Windows), специальные флаги не нужны — и вредны (LNK1181).
+        return;
+    }
+
     // Символы Python C API резолвятся в рантайме — модуль грузится в процесс
     // интерпретатора (эквивалент maturin/setuptools-rust).
     // `-undefined dynamic_lookup` — два отдельных аргумента линкера.
