@@ -9,6 +9,11 @@
 set -e
 cd "$(dirname "$0")/pyqr-core"
 
+# Единый deployment target: иначе build-скрипты ring/libsqlite3-sys собирают
+# объекты под minos хоста, а итоговый линк идёт под 11.0 (warn'ы и риск
+# раскладки __LINKEDIT).
+export MACOSX_DEPLOYMENT_TARGET=11.0
+
 for attempt in 1 2 3 4 5 6 7 8; do
   if ! cargo build --release 2>&1 | grep -E '^error' ; then :; else
     echo "ошибка сборки"; exit 1
