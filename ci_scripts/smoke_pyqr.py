@@ -15,4 +15,4 @@ d = tempfile.mkdtemp()
 qrcode.make('CI-SMOKE-1').save(os.path.join(d, 'q.png'))
 found = barcode_utils.decode_image_cv(os.path.join(d, 'q.png'), None)
 assert [c for c, _ in found] == ['CI-SMOKE-1'], found
-print('pyqr_core: QR декодирован, бэкенд =', os.environ.get('PYQR_BACKEND', 'auto'))
+print('pyqr_core: QR decoded, backend =', os.environ.get('PYQR_BACKEND', 'auto'))

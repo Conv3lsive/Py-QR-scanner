@@ -19,6 +19,9 @@ jobs:
           - { os: ubuntu-22.04, platform: linux-x86_64 }
           - { os: windows-2022, platform: windows-x86_64 }
     runs-on: ${{ matrix.os }}
+    env:
+      # Русскоязычные print/log на windows-консоли (cp1252) иначе роняют шаги
+      PYTHONIOENCODING: utf-8
     defaults:
       run:
         shell: bash
@@ -113,7 +116,7 @@ jobs:
           "$BIN" --action 1 --image-folder "$T/images" --csv-path "$T/students.csv" \
             --csv-delimiter ';' --name-fields Name Surname --code-field code \
             --output-folder "$T/out" --move-mode copy --threads 4
-          test -f "$T/out/Ivanov Ivan/q1.png"
+          test -f "$T/out/Ivan Ivanov/q1.png"
 
       - name: Упаковка артефактов
         run: |
