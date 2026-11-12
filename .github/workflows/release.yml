@@ -1,0 +1,179 @@
+name: release
+
+on:
+  push:
+    tags: ['rust-v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, platform: macos-arm64 }
+          - { os: ubuntu-22.04, platform: linux-x86_64 }
+          - { os: windows-2022, platform: windows-x86_64 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python-зависимости
+        run: python -m pip install -q -r requirements.txt pytest qrcode
+
+      - name: Системные зависимости (zbar, библиотеки для offscreen-тестов)
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install zbar
+          elif [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -y
+            sudo apt-get install -y libzbar0 libzbar-dev libgl1 libegl1 libxkbcommon0
+          fi
+
+      - name: Сборка pyqr_core (Rust)
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # build.sh сам подбирает выравнивание strtab (баг ld на macOS 26+;
+            # на старых линкерах проверка проходит сразу)
+            ./rust/build.sh
+            cp pyqr_core.so "pyqr_core-${{ matrix.platform }}-abi3-py38.so"
+          else
+            (cd rust/pyqr-core && cargo build --release)
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              cp rust/pyqr-core/target/release/pyqr_core.dll pyqr_core.pyd
+              cp pyqr_core.pyd "pyqr_core-${{ matrix.platform }}-abi3-py38.pyd"
+            else
+              cp rust/pyqr-core/target/release/libpyqr_core.so pyqr_core.so
+              cp pyqr_core.so "pyqr_core-${{ matrix.platform }}-abi3-py38.so"
+            fi
+          fi
+
+      - name: Смоук-тест pyqr_core (декод реального QR)
+        run: python ci_scripts/smoke_pyqr.py
+
+      - name: Полный тест-сьют
+        run: python -m pytest tests/ -q
+
+      - name: Стейджинг zbar для бандла
+        run: |
+          mkdir -p packaging/lib
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ./packaging/bundle_dylibs.sh
+          elif [ "$RUNNER_OS" = "Linux" ]; then
+            cp /usr/lib/x86_64-linux-gnu/libzbar.so.0 packaging/lib/
+          else
+            python ci_scripts/stage_zbar_windows.py
+          fi
+          ls -la packaging/lib
+
+      - name: PyInstaller GUI-билд (только GUI, без консоли)
+        run: |
+          python -m pip install -q pyinstaller
+          EXT="so"; [ "$RUNNER_OS" = "Windows" ] && EXT="pyd"
+          ARGS=(--add-binary "pyqr_core.$EXT:.")
+          for f in packaging/lib/*; do
+            ARGS+=(--add-binary "$f:lib")
+          done
+          python -m PyInstaller --noconfirm --clean --onefile --windowed \
+            --name PyQR-scanner \
+            --distpath packaging/dist --workpath packaging/build \
+            "${ARGS[@]}" \
+            packaging/frozen_entry.py
+
+      - name: Смоук-тест замороженного бинаря (action=1, QR из бандла)
+        run: |
+          T=$(mktemp -d); mkdir -p "$T/images"
+          python ci_scripts/make_frozen_fixture.py "$T"
+          BIN="packaging/dist/PyQR-scanner"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            BIN="packaging/dist/PyQR-scanner.app/Contents/MacOS/PyQR-scanner"
+          fi
+          "$BIN" --action 1 --image-folder "$T/images" --csv-path "$T/students.csv" \
+            --csv-delimiter ';' --name-fields Name Surname --code-field code \
+            --output-folder "$T/out" --move-mode copy --threads 4
+          test -f "$T/out/Ivanov Ivan/q1.png"
+
+      - name: Упаковка артефактов
+        run: |
+          cd packaging/dist
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --sequesterRsrc --keepParent PyQR-scanner.app "PyQR-scanner-${{ matrix.platform }}.zip"
+            cp "../../pyqr_core-${{ matrix.platform }}-abi3-py38.so" .
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            python -m zipfile -c "PyQR-scanner-${{ matrix.platform }}.zip" PyQR-scanner.exe
+            cp "../../pyqr_core-${{ matrix.platform }}-abi3-py38.pyd" .
+          else
+            tar -czf "PyQR-scanner-${{ matrix.platform }}.tar.gz" PyQR-scanner
+            cp "../../pyqr_core-${{ matrix.platform }}-abi3-py38.so" .
+          fi
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "pyqr-${{ matrix.platform }}"
+          path: |
+            packaging/dist/PyQR-scanner-*
+            packaging/dist/pyqr_core-*
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Контрольные суммы
+        run: |
+          cd dist-artifacts
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist-artifacts/*
+          body: |
+            Сборка Rust-версии: GUI-приложения (готовые к запуску, zbar внутри)
+            и модуль `pyqr_core` для своего Python-окружения (CPython ≥ 3.8).
+
+            ## PyQR-scanner-<платформа>
+            - **macos-arm64** (.zip): распакуй, `PyQR-scanner.app` → «Программы».
+              Первый запуск — правый клик → «Открыть» (билд не подписан Apple
+              Developer ID, Gatekeeper спросит подтверждение).
+            - **linux-x86_64** (.tar.gz): распакуй, `chmod +x PyQR-scanner`,
+              двойной клик или запуск из терминала (Ubuntu 22.04+).
+            - **windows-x86_64** (.zip): распакуй, запуск `PyQR-scanner.exe`
+              (SmartScreen может спросить подтверждение — «Подробнее» →
+              «Выполнить в любом случае»).
+
+            Двойной клик открывает GUI. Python, Rust и zbar не нужны — всё внутри.
+
+            ## pyqr_core-<платформа>-abi3-py38
+            Положи в корень проекта рядом с `main.py` (расширение: `.so`/`.pyd`) —
+            приложение подхватит автоматически (`PYQR_BACKEND=auto`). Сборка из
+            исходников: `./rust/build.sh` (macOS) или `cargo build --release`
+            в `rust/pyqr-core`.
+
+            Замеры производительности (Apple M4): QR-декод ×6–13, CSV ×2.1,
+            геометрическое среднее ×2.15 по 11 метрикам. Эквивалентность
+            Python/Rust покрыта 20 тестами в сьюте (425 тестов всего).
