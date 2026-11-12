@@ -74,7 +74,8 @@ fn zbar() -> Option<&'static Zbar> {
 }
 
 /// Кандидаты библиотеки: сначала env (ZBAR_LIB_PATH, LIBZBAR_PATH), затем
-/// стандартные системные пути (как `_load_system_zbar_library`).
+/// стандартные системные пути по платформам (зеркало SYSTEM_ZBAR_LIBRARY_PATHS
+/// из barcode_utils.py + имена Windows для поиска в PATH/возле exe).
 fn find_zbar_library() -> Option<PathBuf> {
     for var in ["ZBAR_LIB_PATH", "LIBZBAR_PATH"] {
         if let Ok(raw) = std::env::var(var) {
@@ -87,10 +88,30 @@ fn find_zbar_library() -> Option<PathBuf> {
             }
         }
     }
+    // macOS (Homebrew, Intel и Apple Silicon)
     for candidate in [
         "/opt/homebrew/lib/libzbar.dylib",
         "/opt/homebrew/opt/zbar/lib/libzbar.dylib",
         "/usr/local/lib/libzbar.dylib",
+        "/usr/local/opt/zbar/lib/libzbar.dylib",
+    ] {
+        let path = Path::new(candidate);
+        if path.is_file() {
+            return Some(path.to_path_buf());
+        }
+    }
+    // Linux (apt/dnf ставят libzbar.so.0)
+    for candidate in [
+        "/usr/lib/x86_64-linux-gnu/libzbar.so.0",
+        "/usr/lib/aarch64-linux-gnu/libzbar.so.0",
+        "/lib/x86_64-linux-gnu/libzbar.so.0",
+        "/lib/aarch64-linux-gnu/libzbar.so.0",
+        "/usr/lib64/libzbar.so.0",
+        "/usr/lib64/libzbar.so",
+        "/usr/lib/libzbar.so.0",
+        "/usr/lib/libzbar.so",
+        "/usr/local/lib/libzbar.so.0",
+        "/usr/local/lib/libzbar.so",
     ] {
         let path = Path::new(candidate);
         if path.is_file() {
@@ -101,8 +122,21 @@ fn find_zbar_library() -> Option<PathBuf> {
 }
 
 fn load_zbar() -> Option<Zbar> {
-    let path = find_zbar_library()?;
-    let lib = unsafe { libloading::Library::new(&path).ok()? };
+    // macOS/Linux — по конкретному пути; Windows — по имени (PATH, каталог
+    // exe, системные каталоги: libzbar-64.dll из wheel pyzbar или своя установка).
+    let lib = unsafe {
+        match find_zbar_library() {
+            Some(path) => libloading::Library::new(&path).ok()?,
+            None => {
+                if !cfg!(target_os = "windows") {
+                    return None;
+                }
+                libloading::Library::new("libzbar-64.dll")
+                    .or_else(|_| unsafe { libloading::Library::new("libzbar.dll") })
+                    .ok()?
+            }
+        }
+    };
     unsafe {
         let scanner_create = *lib
             .get::<ZbarScannerCreate>(b"zbar_image_scanner_create")
@@ -598,5 +632,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(find_barcodes_in_files, m)?)?;
     m.add_function(wrap_pyfunction!(file_renamer, m)?)?;
     m.add_function(wrap_pyfunction!(split_by_student_folders, m)?)?;
+    m.add_function(wrap_pyfunction!(zbar_available, m)?)?;
     Ok(())
+}
+
+/// Загружен ли системный libzbar (для Python-обвязки: авто-бэкенд решает,
+/// можно ли отдавать декодирование Rust-пути, или падать на pyzbar/OpenCV).
+#[pyfunction]
+pub fn zbar_available() -> bool {
+    zbar().is_some()
 }

@@ -1,6 +1,17 @@
 import ctypes
 
 import backend_switch
+
+
+def _rust_decode_ready():
+    """Rust-путь декодирования применим только если он реально нашёл libzbar
+    (иначе молча вернул бы пустой результат, затеняя pyzbar/OpenCV-фолбэк)."""
+    if not backend_switch.use_rust():
+        return False
+    try:
+        return backend_switch.pyqr_core.barcode.zbar_available()
+    except AttributeError:  # старая сборка без zbar_available
+        return False
 import importlib
 import logging
 import os
@@ -285,7 +296,7 @@ def find_best_rotation(image):
 
 def decode_image_cv(path, image_folder):
     try:
-        if backend_switch.use_rust():
+        if _rust_decode_ready():
             results = []
             seen_codes = set()
             for barcode_data in backend_switch.pyqr_core.barcode.decode_image(path):
@@ -331,7 +342,7 @@ def decode_image_cv(path, image_folder):
 def find_barcodes_in_files(file_paths: Iterable[str], max_workers=6, progress_callback=None):
     barcodes = {}
 
-    if backend_switch.use_rust():
+    if _rust_decode_ready():
         return backend_switch.pyqr_core.barcode.find_barcodes_in_files(
             list(file_paths), max_workers=max_workers, progress_callback=progress_callback)
 
