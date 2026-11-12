@@ -398,7 +398,7 @@ pub fn find_barcodes_in_files(
 }
 
 /// Переименовать {код: [пути]} в image_folder: f"{safe_code}_{idx}{ext|.jpg}",
-/// safe_code — '/' '\\' '\x00' → '_' (см. barcode_utils.file_renamer).
+/// safe_code — нелегальные для имён символы ('/' '\' ':' и пр.) → '_' (как в barcode_utils.py).
 /// Возвращает количество переименованных файлов.
 #[pyfunction]
 #[pyo3(signature = (image_folder, barcodes, progress_callback=None))]
@@ -433,10 +433,12 @@ pub fn file_renamer(
                 .and_then(|e| e.to_str())
                 .map(|e| format!(".{}", e))
                 .unwrap_or_else(|| ".jpg".to_string());
-            let safe_code = code
-                .replace('/', "_")
-                .replace('\\', "_")
-                .replace('\0', "_");
+            // Нелегальные в именах файлов символы (':' на Windows даёт
+            // WinError 123 и пр.) — единый набор с barcode_utils.py.
+            let safe_code = code.replace(
+                |ch: char| matches!(ch, '/' | '\\' | ':' | '\0' | '<' | '>' | '|' | '?' | '*'),
+                "_",
+            );
             let new_name = format!("{}_{}{}", safe_code, idx, ext);
             let new_path = Path::new(&image_folder).join(new_name);
 

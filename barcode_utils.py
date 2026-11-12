@@ -418,8 +418,12 @@ def file_renamer(image_folder, barcode, progress_callback=None):
         for idx, path in enumerate(paths, start=1):
             try:
                 _, ext = os.path.splitext(path)
-                # Код из QR может содержать '/' (URL) — санитизируем под имя файла.
-                safe_code = str(code).replace('/', '_').replace('\\', '_').replace('\x00', '_')
+                # Код из QR может содержать символы, нелегальные в именах
+                # файлов (':' и пр. — на Windows WinError 123), — санитизируем
+                # весь проблемный набор, поведение одинаково на всех ОС.
+                safe_code = str(code)
+                for ch in ('/', '\\', ':', '\x00', '<', '>', '|', '?', '*'):
+                    safe_code = safe_code.replace(ch, '_')
                 new_name = f"{safe_code}_{idx}{ext or '.jpg'}"
                 new_path = os.path.join(image_folder, new_name)
                 os.rename(path, new_path)
